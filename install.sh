@@ -10,7 +10,7 @@ if [[ $EUID -ne 0 ]]; then echo "Run with sudo"; exit 1; fi
 
 echo "==> packages"
 apt-get update -qq
-apt-get install -y -qq python3-venv python3-pip python3-lgpio libportaudio2 ffmpeg i2c-tools
+apt-get install -y -qq python3-venv python3-pip python3-lgpio libportaudio2 ffmpeg i2c-tools rsync git
 
 echo "==> enable I2C"
 if command -v raspi-config >/dev/null; then raspi-config nonint do_i2c 0 || true; fi
