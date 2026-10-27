@@ -96,6 +96,15 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#21262d;border:1px solid var(--line);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;max-width:90vw}
 .toast.on{opacity:1}
 .muted{color:var(--dim);font-size:13.5px}
+body[data-role="viewer"] .need-op, body[data-role="viewer"] .need-admin, body[data-role="operator"] .need-admin{display:none !important}
+.who{display:flex;align-items:center;gap:8px;margin-left:12px;font-size:13px}
+.who .pill{font-size:11px}
+@media(max-width:560px){.brand small,#whoName,#wstext{display:none}.who{margin-left:8px;gap:6px}.who .btn{padding:4px 8px;font-size:12px}}
+table.t{width:100%;border-collapse:collapse;font-size:13.5px}
+table.t th{text-align:left;color:var(--dim);font-weight:600;font-size:12px;padding:6px 6px;border-bottom:1px solid var(--line)}
+table.t td{padding:8px 6px;border-bottom:1px solid #21262d;vertical-align:middle}
+table.t td.m{font-family:var(--mono);font-size:12.5px}
+.tscroll{overflow-x:auto}
 .alarms{display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 .alarms .pill{font-size:12.5px;padding:4px 10px}
 .af2{display:grid;grid-template-columns:1fr;gap:14px}
@@ -117,19 +126,22 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
 .dir.rx{background:#2a2210;color:var(--amber)} .dir.tx{background:#241a38;color:var(--violet)}
 </style>
 </head>
-<body>
+<body data-role="viewer">
 <header>
   <div class="bar">
     <div class="brand"><img src="/favicon.svg" width="22" height="22" alt=""> AirBridge <small id="site"></small></div>
     <div class="conn"><span class="dot" id="wsdot"></span><span id="wstext">offline</span></div>
+    <div class="who"><span id="whoName">…</span><span class="pill" id="whoRole"></span>
+      <button class="btn sm" onclick="logout()">Sign out</button></div>
   </div>
   <nav>
     <button data-tab="status" class="on">Status</button>
     <button data-tab="history">History</button>
     <button data-tab="audio">Audio</button>
     <button data-tab="recs">Recordings</button>
-    <button data-tab="setup">Setup</button>
-    <button data-tab="test">Test</button>
+    <button data-tab="setup" class="need-admin">Setup</button>
+    <button data-tab="test" class="need-op">Test</button>
+    <button data-tab="access">Access</button>
   </nav>
 </header>
 
@@ -180,7 +192,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
           <dt>Last burst</dt><dd id="txLast">–</dd>
           <dt>K5TRA HID</dt><dd id="txHid">–</dd>
         </dl>
-        <div class="row" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
+        <div class="row need-op" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
       </div>
 
       <div class="card s4">
@@ -255,7 +267,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
           <dt>Current offsets on / off</dt><dd id="stCur">–</dd>
           <dt>Suggested on / off</dt><dd id="stSug">–</dd>
         </dl>
-        <div class="row" style="margin-top:12px"><button class="btn pri" id="stApply" onclick="applySuggest()">Use suggested offsets</button>
+        <div class="row need-admin" style="margin-top:12px"><button class="btn pri" id="stApply" onclick="applySuggest()">Use suggested offsets</button>
           <span class="muted" id="stNote"></span></div>
       </div>
     </div>
@@ -282,7 +294,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
           <div class="tile"><b id="tnT">–</b><span>THD %</span></div>
         </div>
       </div>
-      <div class="card s6">
+      <div class="card s6 need-op">
         <h3>TX test tone</h3>
         <p class="muted">Keys the A210 and sends a tone from the K5TRA, for setting the mic level. The busy-channel rule still applies.</p>
         <div class="row"><input type="number" id="ttS" value="5" min="1" max="30" style="width:76px"><span class="muted">s</span>
@@ -291,7 +303,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
         <div class="row" style="margin-top:10px"><button class="btn pri" onclick="post(`/api/test/tx?seconds=${ttS.value}&freq=${ttF.value}&level=${ttL.value}`)">Transmit tone</button>
           <button class="btn dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
       </div>
-      <div class="card s6">
+      <div class="card s6 need-admin">
         <h3>Level calibration</h3>
         <p class="muted">Feed a known level (e.g. −10 dBm, 600 Ω) into the K5TRA input and enter it. For the output, measure the K5TRA output with a meter during a TX test tone.</p>
         <div class="row"><input type="number" id="calRx" value="-10" style="width:90px"><span class="muted">dBm in</span><button class="btn" onclick="calAf('rx')">Set RX</button></div>
@@ -319,34 +331,75 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
   <!-- TEST -->
   <section id="test">
     <div class="grid">
-      <div class="card s6">
+      <div class="card s6 need-op">
         <h3>SIP test call</h3>
         <p class="muted">Calls the NXR, sends any configured DTMF, then plays a 1 kHz tone at −10 dBFS.</p>
         <div class="row"><input type="number" id="tcSecs" value="5" min="1" max="30" style="width:90px"> <span class="muted">seconds</span>
           <button class="btn pri" onclick="post('/api/test/call?seconds='+tcSecs.value)">Place test call</button>
           <button class="btn dng" onclick="post('/api/test/hangup')">Hang up</button></div>
       </div>
-      <div class="card s6">
+      <div class="card s6 need-op">
         <h3>Relay</h3>
         <p class="muted">Force the relay for wiring checks. Auto returns it to the configured mode.</p>
         <div class="row"><button class="btn" onclick="post('/api/relay/on')">Force ON</button><button class="btn" onclick="post('/api/relay/off')">Force OFF</button><button class="btn pri" onclick="post('/api/relay/auto')">Auto</button></div>
       </div>
-      <div class="card s6">
+      <div class="card s6 need-admin">
         <h3>Thresholds from live readings</h3>
         <p class="muted">With no signal, capture the floor. Then key a weak test carrier and capture it. RSSI and AF thresholds are both set between the two, with hysteresis.</p>
         <div class="row"><button class="btn" onclick="cap('floor')">Capture floor</button><button class="btn" onclick="cap('sig')">Capture weak carrier</button><button class="btn pri" onclick="applyThresh()">Apply</button></div>
         <dl class="kv" style="margin-top:10px"><dt>Floor</dt><dd id="capFloor">–</dd><dt>Carrier</dt><dd id="capSig">–</dd><dt>Proposed RSSI on / off</dt><dd id="capProp">–</dd><dt>Proposed AF on / off</dt><dd id="capPropAf">–</dd></dl>
       </div>
-      <div class="card s6">
+      <div class="card s6 need-admin">
         <h3>dBm calibration</h3>
         <p class="muted">Inject two known levels from a signal generator and capture each reading.</p>
         <div class="row"><input type="number" id="cal1" placeholder="dBm #1" style="width:110px" value="-110"><button class="btn" onclick="calCap(1)">Capture #1</button></div>
         <div class="row" style="margin-top:8px"><input type="number" id="cal2" placeholder="dBm #2" style="width:110px" value="-70"><button class="btn" onclick="calCap(2)">Capture #2</button></div>
         <div class="muted" id="calInfo" style="margin-top:8px"></div>
       </div>
-      <div class="card" id="simCard" style="display:none">
+      <div class="card need-op" id="simCard" style="display:none">
         <h3>Simulator</h3>
         <div class="row"><button class="btn pri" onclick="post('/api/sim/on')">Carrier ON</button><button class="btn" onclick="post('/api/sim/off')">Carrier OFF</button><button class="btn" onclick="post('/api/sim/release')">Release</button><button class="btn" id="simAuto" onclick="post('/api/sim/auto')">Random traffic: off</button><button class="btn" id="simTone" onclick="post('/api/sim/tone')">RX test tone: off</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACCESS -->
+  <section id="access">
+    <div class="grid">
+      <div class="card s6">
+        <h3>My account</h3>
+        <p class="muted" style="margin-top:0">Signed in as <b id="meName"></b> (<span id="meRole"></span>).</p>
+        <div class="f"><label>Current password</label><input type="password" id="pwCur" autocomplete="current-password"></div>
+        <div class="f"><label>New password</label><input type="password" id="pwNew" autocomplete="new-password" placeholder="10+ characters"></div>
+        <div class="f"><label>Repeat new password</label><input type="password" id="pwNew2" autocomplete="new-password"></div>
+        <button class="btn pri" onclick="changePw()">Change password</button>
+        <p class="muted">Changing your password signs out your other sessions.</p>
+      </div>
+      <div class="card s6">
+        <h3>Roles</h3>
+        <dl class="kv" style="grid-template-columns:auto 1fr">
+          <dt><span class="pill">viewer</span></dt><dd style="text-align:left;font-family:inherit">Status, history, audio analysis, listen to recordings</dd>
+          <dt><span class="pill b">operator</span></dt><dd style="text-align:left;font-family:inherit">+ test calls, TX test tone, PTT release, relay, hang up, delete recordings</dd>
+          <dt><span class="pill a">admin</span></dt><dd style="text-align:left;font-family:inherit">+ settings, users, sessions, audit log</dd>
+        </dl>
+      </div>
+      <div class="card need-admin">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Users</h3></div>
+        <div class="tscroll"><table class="t" id="usersT"></table></div>
+        <h3 style="margin-top:18px">Add user</h3>
+        <div class="row">
+          <input type="text" id="nuName" placeholder="username" style="width:150px" autocomplete="off">
+          <input type="password" id="nuPw" placeholder="password (10+)" style="width:170px" autocomplete="new-password">
+          <select id="nuRole" style="width:120px"><option>viewer</option><option>operator</option><option>admin</option></select>
+          <button class="btn pri" onclick="addUser()">Add</button></div>
+      </div>
+      <div class="card need-admin">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Active sessions</h3><button class="btn sm" onclick="loadAccess()">Refresh</button></div>
+        <div class="tscroll"><table class="t" id="sessT"></table></div>
+      </div>
+      <div class="card need-admin">
+        <h3>Audit log</h3>
+        <div class="tscroll" style="max-height:420px;overflow:auto"><table class="t" id="auditT"></table></div>
       </div>
     </div>
   </section>
@@ -364,10 +417,32 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'recs') loadRecs();
   if (b.dataset.tab === 'setup') loadCfg();
   if (b.dataset.tab === 'history') loadHist();
+  if (b.dataset.tab === 'access') loadAccess();
   location.hash = b.dataset.tab;
 });
 
 function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(toast.h); toast.h=setTimeout(()=>e.classList.remove('on'),2600); }
+// every state-changing request carries the CSRF header the server requires
+const _fetch = window.fetch.bind(window);
+window.fetch = (url, opts = {}) => {
+  const m = (opts.method || 'GET').toUpperCase();
+  if (m !== 'GET' && m !== 'HEAD') opts.headers = {...(opts.headers || {}), 'X-AirBridge': '1'};
+  return _fetch(url, opts).then(r => { if (r.status === 401) location.href = '/login'; return r; });
+};
+let ME = null;
+fetch('/api/me').then(r => r.json()).then(m => {
+  ME = m; document.body.dataset.role = m.role;
+  $('whoName').textContent = m.username; $('whoRole').textContent = m.role;
+  $('whoRole').className = 'pill ' + ({admin:'a', operator:'b'}[m.role] || '');
+  $('meName').textContent = m.username; $('meRole').textContent = m.role;
+});
+async function logout(){ await fetch('/api/logout', {method:'POST'}); location.href = '/login'; }
+async function api(method, url, body){
+  const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.detail || ('Error ' + r.status)); return null; }
+  return j;
+}
 async function post(url, body){
   const r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   const j = await r.json().catch(()=>({}));
@@ -550,7 +625,7 @@ async function loadRecs(){
       <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.avg_dbfs!=null?' · avg '+r.avg_dbfs.toFixed(1)+' dBFS':''}${r.peak_v!=null?' · RSSI '+r.peak_v.toFixed(2)+' V':''}</div>
       ${al.length ? `<div class="meta" style="color:var(--red)">⚠ ${al.join(' · ')}</div>` : ''}</div>
       <div style="text-align:right"><span class="pill ${cls}" title="${r.forward_detail||''}">${label}</span><br>
-      <button class="btn sm dng" style="margin-top:6px">Delete</button></div>
+      <button class="btn sm dng need-op" style="margin-top:6px">Delete</button></div>
       ${r.file ? `<audio controls preload="none" src="/api/recordings/${r.id}/audio"></audio>` : ''}`;
     if (r.forward_detail) { const m=document.createElement('div'); m.className='meta'; m.style.gridColumn='1/-1'; m.textContent=r.forward_detail; d.append(m); }
     d.querySelector('button').onclick = async () => { if (!confirm('Delete this recording?')) return;
@@ -673,7 +748,12 @@ const SCHEMA = [
    ['inbound_idle_s','Inbound idle hang-up (s)','int','0 leaves hang-up to the NXR.']]],
  ['web','Web',[
    ['port','Port','int','Takes effect after a service restart.'],
-   ['password','Password','password','Blank disables login.']]],
+   ['allow_cidrs','Allowed networks','text','Comma list, e.g. 192.168.1.0/24, 10.0.0.0/8. Blank allows any address. Users still have to sign in.'],
+   ['trust_proxy','Behind a proxy / tunnel','bool','Tick when served through Cloudflare Tunnel or a reverse proxy, so the real client IP is used for the allowlist, lockout and audit log.'],
+   ['session_idle_hours','Sign out after idle (h)','num'],
+   ['session_max_days','Maximum session age (days)','num'],
+   ['lockout_attempts','Failed logins before lockout','int','Counted per user and per IP address.'],
+   ['lockout_minutes','Lockout window (min)','int']]],
 ];
 
 let devices = null;
@@ -784,19 +864,62 @@ function renderStats(){
   $('stIdle').textContent = st.idle_p95 == null ? '–' : '+' + v(st.idle_p95);
   $('stLift').textContent = st.carrier_lift == null ? 'no carriers yet' : '+' + v(st.carrier_lift);
   $('stN').textContent = `${Math.round(st.idle_s/60)} min idle · ${st.carrier_s} s carrier`;
-  $('stCur').textContent = CFG_R ? `${CFG_R.on_offset_v} / ${CFG_R.off_offset_v} V` : '–';
+  const off = CFG_R || (S && S.rssi_offsets);
+  $('stCur').textContent = off ? `${off.on_offset_v} / ${off.off_offset_v} V` : '–';
   $('stSug').textContent = st.suggest_on == null ? 'need ≥ 1 min idle' : `${st.suggest_on} / ${st.suggest_off} V`;
   $('stApply').disabled = st.suggest_on == null;
   $('stNote').textContent = st.carrier_lift == null && st.suggest_on != null ? 'No carriers seen yet: suggestion is from noise only.' : '';
 }
 let CFG_R = null;
-fetch('/api/config').then(r => r.json()).then(c => { CFG_R = c.rssi; });
 async function applySuggest(){
   if (!hStats || hStats.suggest_on == null) return;
   const c = await (await fetch('/api/config')).json();
   c.rssi.threshold_mode = 'adaptive'; c.rssi.on_offset_v = hStats.suggest_on; c.rssi.off_offset_v = hStats.suggest_off;
   const j = await post('/api/config', c); if (j.ok) { CFG_R = j.config.rssi; toast('Adaptive offsets applied'); renderStats(); }
 }
+
+// ---------- access ----------
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ago = t => t ? fmtDT(t) : '–';
+async function changePw(){
+  if ($('pwNew').value !== $('pwNew2').value) return toast('New passwords do not match');
+  const j = await api('POST', '/api/me/password', {current: $('pwCur').value, new: $('pwNew').value});
+  if (j) { ['pwCur','pwNew','pwNew2'].forEach(i => $(i).value = ''); toast('Password changed'); }
+}
+async function loadAccess(){
+  if (!ME || ME.role !== 'admin') return;
+  const [users, sess, aud] = await Promise.all(['/api/users', '/api/sessions', '/api/audit?limit=200'].map(u => fetch(u).then(r => r.json())));
+  $('usersT').innerHTML = '<tr><th>User</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr>' + users.map(u => `
+    <tr><td><b>${esc(u.username)}</b>${u.username === ME.username ? ' <span class="muted">(you)</span>' : ''}</td>
+      <td><select data-u="${u.id}" class="uRole" style="width:auto;padding:4px 8px">${['viewer','operator','admin'].map(r => `<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select></td>
+      <td>${u.disabled ? '<span class="pill r">disabled</span>' : '<span class="pill g">active</span>'} <span class="muted">${u.sessions} session${u.sessions===1?'':'s'}</span></td>
+      <td class="m">${ago(u.last_login)}</td>
+      <td style="white-space:nowrap"><button class="btn sm" onclick="resetPw(${u.id},'${esc(u.username)}')">Reset password</button>
+        <button class="btn sm" onclick="toggleUser(${u.id}, ${u.disabled ? 'false' : 'true'})">${u.disabled ? 'Enable' : 'Disable'}</button>
+        ${u.username === ME.username ? '' : `<button class="btn sm dng" onclick="delUser(${u.id},'${esc(u.username)}')">Delete</button>`}</td></tr>`).join('');
+  document.querySelectorAll('.uRole').forEach(sel => sel.onchange = async () => {
+    if (await api('PATCH', '/api/users/' + sel.dataset.u, {role: sel.value})) toast('Role changed; that user must sign in again');
+    loadAccess(); });
+  $('sessT').innerHTML = '<tr><th>User</th><th>From</th><th>Last active</th><th>Signed in</th><th></th></tr>' + sess.map(x => `
+    <tr><td><b>${esc(x.username)}</b>${x.current ? ' <span class="muted">(this one)</span>' : ''}</td>
+      <td class="m" title="${esc(x.agent)}">${esc(x.ip)}</td><td class="m">${ago(x.last_seen)}</td><td class="m">${ago(x.created)}</td>
+      <td>${x.current ? '' : `<button class="btn sm dng" onclick="revoke(${x.id})">Sign out</button>`}</td></tr>`).join('');
+  const AC = {login_failed:'r', login_locked:'r', setup_failed:'r', password_change_failed:'r', user_delete:'a', settings_save:'a', session_revoke:'a'};
+  $('auditT').innerHTML = '<tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th><th>From</th></tr>' + aud.map(a => `
+    <tr><td class="m">${fmtDT(a.t)}</td><td>${esc(a.username) || '–'}</td><td><span class="pill ${AC[a.action] || ''}">${esc(a.action.replace(/_/g,' '))}</span></td>
+      <td>${esc(a.detail)}</td><td class="m">${esc(a.ip)}</td></tr>`).join('');
+}
+async function addUser(){
+  const j = await api('POST', '/api/users', {username: $('nuName').value.trim(), password: $('nuPw').value, role: $('nuRole').value});
+  if (j) { $('nuName').value = $('nuPw').value = ''; toast('User added'); loadAccess(); }
+}
+async function resetPw(id, name){
+  const pw = prompt(`New password for ${name} (10+ characters):`); if (!pw) return;
+  if (await api('PATCH', '/api/users/' + id, {password: pw})) { toast('Password reset; their sessions were signed out'); loadAccess(); }
+}
+async function toggleUser(id, disable){ if (await api('PATCH', '/api/users/' + id, {disabled: disable})) loadAccess(); }
+async function delUser(id, name){ if (!confirm(`Delete user ${name}?`)) return; if (await api('DELETE', '/api/users/' + id)) loadAccess(); }
+async function revoke(id){ if (await api('DELETE', '/api/sessions/' + id)) loadAccess(); }
 
 // ---------- test helpers ----------
 let capF = null, capS = null, capFa = null, capSa = null;

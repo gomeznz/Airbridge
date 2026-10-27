@@ -42,4 +42,11 @@ systemctl enable --now airbridge
 IP=$(hostname -I | awk '{print $1}')
 echo
 echo "AirBridge is running: http://$IP:8080"
+sleep 3
+if [[ -f $DATA/setup-code.txt ]]; then
+  echo
+  echo "First-time setup: open http://$IP:8080/setup and create the admin account."
+  echo "Setup code: $(cat $DATA/setup-code.txt)"
+fi
+echo "Lost the admin password?  sudo -u $SVC_USER AIRBRIDGE_DATA=$DATA $APP/venv/bin/python -m airbridge user passwd <name>"
 echo "Logs: journalctl -u airbridge -f"

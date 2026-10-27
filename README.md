@@ -56,6 +56,43 @@ sudo ./install.sh
 
 Then open `http://<pi-ip>:8080`, go to **Setup**, and enter the NXR's IP address and SIP details. Logs: `journalctl -u airbridge -f`.
 
+## Access control
+
+The web panel requires a sign-in. Each user has one role:
+
+| Role | Can |
+|---|---|
+| viewer | Status, history, audio analysis, listen to recordings |
+| operator | + test calls, TX test tone, PTT release, relay override, hang up, delete recordings |
+| admin | + settings, users, sessions, audit log |
+
+**First admin.** On a fresh install, the installer prints a one-time setup code, which is also in the service log and in `/var/lib/airbridge/setup-code.txt`. Open `/setup` and create the admin account with that code. The setup page disappears once an account exists. A password set in an older version is migrated automatically to a user called `admin`, and the plain-text copy is removed.
+
+**Managing access.** Use the **Access** tab:
+- Add users, change roles, reset passwords, disable or delete accounts.
+- See active sessions and sign any of them out.
+- Read the audit log. It records sign-ins, failed attempts, lockouts, settings changes, test calls, TX tones, relay and PTT actions, and user changes, each with user and IP.
+- Every user can change their own password there.
+
+**Protections:**
+- Passwords are stored as scrypt hashes, with a 10-character minimum.
+- Sessions are server-side, signed out after 12 h idle and expiring after 30 days at most.
+- Cookies are HttpOnly and SameSite=strict.
+- State-changing requests need a CSRF header and a same-origin request.
+- After 5 failed sign-ins in 15 minutes, both that user and that IP are locked out for the rest of the window.
+- Changing a user's role, password or enabled state signs out all of their sessions.
+- The last active admin can't be removed or demoted.
+- Security headers include no framing and a CSP.
+
+**Network limits.** Setup → Web → *Allowed networks* takes a list such as `192.168.1.0/24`. It restricts which addresses can reach the panel at all, and users still have to sign in. If the panel is published through Cloudflare Tunnel or a reverse proxy, tick *Behind a proxy / tunnel* so the real client IP is used for the allowlist, lockout and audit log.
+
+**Locked out of the admin account?** From the Pi:
+
+```bash
+sudo -u airbridge AIRBRIDGE_DATA=/var/lib/airbridge /opt/airbridge/venv/bin/python -m airbridge user passwd <name>
+# also: user list | user add NAME --role admin | user role NAME operator | user enable|disable NAME
+```
+
 ## Setting up
 
 1. **Thresholds.** On the *Test* tab, capture the noise floor with no signal. Then key a weak carrier and capture that, and press **Apply**. On and off thresholds are set between the two, with hysteresis.

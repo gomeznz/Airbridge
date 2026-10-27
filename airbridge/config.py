@@ -138,7 +138,13 @@ DEFAULTS = {
     "web": {
         "host": "0.0.0.0",
         "port": 8080,
-        "password": "",                  # blank = no login
+        "password": "",                  # legacy single password: migrated to an 'admin' user, then cleared
+        "allow_cidrs": "",               # comma list of allowed client networks (blank = any), e.g. 192.168.1.0/24
+        "trust_proxy": False,            # behind Cloudflare Tunnel / reverse proxy: use CF-Connecting-IP / X-Forwarded-For
+        "session_idle_hours": 12,
+        "session_max_days": 30,
+        "lockout_attempts": 5,           # failed logins (per user and per IP) ...
+        "lockout_minutes": 15,           # ... within this window lock further attempts
     },
 }
 

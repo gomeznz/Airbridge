@@ -550,6 +550,7 @@ class Engine:
             "off_v": round(self.det.thresholds()[1], 3),
             "rssi_mode": "adaptive" if self.det.adaptive else ("learning" if c["rssi"]["threshold_mode"] == "adaptive" else "fixed"),
             "rssi_floor": None if self.det.floor.floor is None else round(self.det.floor.floor, 3),
+            "rssi_offsets": {"on_offset_v": c["rssi"]["on_offset_v"], "off_offset_v": c["rssi"]["off_offset_v"]},
             "cor": d.cor,
             "detector": d.state,
             "detect": {
