@@ -90,7 +90,7 @@ Pick any combination in Setup → *Trigger sources*. *Combine* = **any** fires o
 | COR | K5TRA COR input (squelch-open line) | Clean and simple; follows the A210 squelch setting |
 | AF | The receiver audio on the K5TRA AF-IN | No extra wiring; two modes, below |
 
-**AF noise mode** (default) is for use with the A210 squelch **open**. AirBridge measures the receiver noise above the voice band (4–7 kHz on the raw 48 kHz capture). When a carrier arrives, the AGC quiets that noise, which is how a classic noise squelch works. It also catches an unmodulated carrier and isn't fooled by loud speech. Use the *Audio* tab spectrum to check that the A210 line-out actually passes audio above 4 kHz. If it doesn't, move the band lower or use level mode.
+**AF noise mode** (default) is for use with the A210 squelch **open**. AirBridge measures the receiver noise above the voice band (4–7 kHz on the raw 48 kHz capture). When a carrier arrives, the AGC quiets that noise, which is how a classic noise squelch works. It also catches an unmodulated carrier and isn't fooled by loud speech. To check that the A210 line-out actually passes audio above 4 kHz, watch the *AF noise* reading on the Status page with the squelch open: it should drop by 10 dB or more when a carrier arrives. If it barely moves, move the band lower (e.g. 3000–3800 Hz) or use level mode.
 
 **AF level mode** is for use with the A210 squelch **set**. Any audio above the threshold counts as a carrier. It is simpler, but a carrier with no modulation is missed until someone speaks.
 
