@@ -12,6 +12,7 @@ Directions:
 import asyncio
 import json
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -19,6 +20,7 @@ from collections import deque
 from . import afmeter, hardware
 from .audio import AudioSource, tone_frames
 from .detector import ACTIVE, ATTACK, AfDetector, CarrierDetector, sources_of, volts_to_dbm
+from .history import History
 from .k5tra import K5tra
 from .recorder import OverRecording, Store
 from .sip import SipUA
@@ -40,6 +42,8 @@ class Engine:
         self._running = False
         self.listeners = set()           # asyncio queues for live event push
         self._relay_override = None
+        # lives across engine restarts (settings saves) and is saved to disk
+        self.history = History(os.path.join(data_dir, "history.npz"))
 
     # ---------- lifecycle ----------
     async def start(self):
@@ -51,7 +55,11 @@ class Engine:
         self.rssi_in = hardware.RssiInput(c["rssi"], sim)
         self.cor_in = hardware.CorInput(c["cor"], sim, self.k5)
         self.relay = hardware.Relay(c["relay"], sim)
+        old = getattr(self, "det", None)
         self.det = CarrierDetector(c["detect"], c["rssi"])
+        if old is not None and old.floor.buf:           # keep the learned floor across a settings save
+            self.det.floor.buf.extend(old.floor.buf)
+            self.det.floor.floor = old.floor.floor
         self.af_det = AfDetector(c["afdetect"])
         self.rx_meter = afmeter.LevelMeter(c["af"]["rx_cal_dbm"])
         self.tx_meter = afmeter.LevelMeter(c["af"]["tx_cal_dbm"])
@@ -115,6 +123,7 @@ class Engine:
                 self._end_over()
         if self.ua:
             await self.ua.stop()
+        self.history.save()
         self.k5.close()
         self.relay.close()
         self.cor_in.close()
@@ -234,11 +243,18 @@ class Engine:
                 if self.tx.guard_active(now):
                     pass        # A210 transmitting (or just stopped): RSSI/COR are meaningless
                 else:
+                    n_relearn = self.det.relearned
                     ev = self.det.update(v, cor, now, self.af_det.latched)
+                    if self.det.relearned != n_relearn:
+                        self.event("alarm", f"RSSI stayed high > {self.config['rssi']['max_carrier_s']} s: "
+                                            "floor re-learned (interference or drift?)")
                     if ev == "start":
                         self._start_over(self.det.over_start)
                     elif ev == "end":
                         self._end_over()
+                on_v, off_v = self.det.thresholds()
+                self.history.add(now, None if self.tx.guard_active(now) else v, self.det.carrier,
+                                 self.tx.guard_active(now), self.det.floor.floor, on_v, off_v, self.af_det.value)
                 if self.over is not None and self.det.rssi is not None:
                     self.peak_v = max(self.peak_v or 0, self.det.rssi)
                     self.v_sum += self.det.rssi
@@ -530,8 +546,10 @@ class Engine:
             "simulate": self.sim,
             "rssi_v": None if d.rssi is None else round(d.rssi, 3),
             "rssi_dbm": (lambda x: None if x is None else round(x, 1))(volts_to_dbm(d.rssi, c["rssi"])),
-            "on_v": c["detect"]["on_threshold_v"],
-            "off_v": c["detect"]["off_threshold_v"],
+            "on_v": round(self.det.thresholds()[0], 3),
+            "off_v": round(self.det.thresholds()[1], 3),
+            "rssi_mode": "adaptive" if self.det.adaptive else ("learning" if c["rssi"]["threshold_mode"] == "adaptive" else "fixed"),
+            "rssi_floor": None if self.det.floor.floor is None else round(self.det.floor.floor, 3),
             "cor": d.cor,
             "detector": d.state,
             "detect": {
@@ -586,14 +604,20 @@ class Engine:
         }
 
     async def _housekeep(self):
+        """Purge old recordings hourly; save the RSSI history every 5 minutes."""
+        n = 0
         while True:
-            try:
-                n = self.store.purge(int(self.config["record"]["keep_days"]))
-                if n:
-                    self.event("info", f"purged {n} old recordings")
-            except Exception as e:
-                log.warning("purge: %s", e)
-            await asyncio.sleep(3600)
+            if n % 12 == 0:
+                try:
+                    k = self.store.purge(int(self.config["record"]["keep_days"]))
+                    if k:
+                        self.event("info", f"purged {k} old recordings")
+                except Exception as e:
+                    log.warning("purge: %s", e)
+            if n:
+                await asyncio.get_running_loop().run_in_executor(None, self.history.save)
+            n += 1
+            await asyncio.sleep(300)
 
 
 class _PttTap:

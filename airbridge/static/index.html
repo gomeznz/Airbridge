@@ -125,6 +125,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
   </div>
   <nav>
     <button data-tab="status" class="on">Status</button>
+    <button data-tab="history">History</button>
     <button data-tab="audio">Audio</button>
     <button data-tab="recs">Recordings</button>
     <button data-tab="setup">Setup</button>
@@ -161,7 +162,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
         <div class="row" id="srcChips" style="margin-bottom:10px"></div>
         <div class="readout"><b id="rssiV">–</b><span id="rssiDbm" class="muted"></span></div>
         <div class="meter" id="rssiMeter"><div class="fill"></div><div class="mark on"></div><div class="mark off"></div></div>
-        <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="onV"></span></span><span><i style="background:var(--blue)"></i>off <span id="offV"></span></span></div>
+        <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="onV"></span></span><span><i style="background:var(--blue)"></i>off <span id="offV"></span></span><span id="rssiMode"></span></div>
         <div id="afBlock" style="margin-top:14px">
           <div class="readout"><span id="afLabel" class="muted">AF noise</span><b id="afV" style="font-size:18px">–</b></div>
           <div class="meter" id="afMeter"><div class="fill"></div><div class="mark on"></div><div class="mark off"></div></div>
@@ -217,6 +218,45 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
       <div class="card">
         <h3>Events</h3>
         <div class="log" id="log"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="history">
+    <div class="grid">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <h3 style="margin:0">RSSI history</h3>
+          <div class="row" id="hRange">
+            <button class="btn sm" data-m="10">10 m</button><button class="btn sm pri" data-m="60">1 h</button>
+            <button class="btn sm" data-m="360">6 h</button><button class="btn sm" data-m="1440">24 h</button></div>
+        </div>
+        <canvas id="histC" style="height:260px"></canvas>
+        <div class="legend">
+          <span><i style="background:#3fb950"></i>RSSI (band = min–max)</span>
+          <span><i style="background:#8b949e"></i>floor</span>
+          <span><i style="background:var(--amber)"></i>on</span><span><i style="background:var(--blue)"></i>off</span>
+          <span><i style="background:rgba(227,160,8,.5);height:8px"></i>carrier</span>
+          <span><i style="background:rgba(248,81,73,.5);height:8px"></i>TX</span></div>
+        <div id="hAfWrap" style="display:none;margin-top:14px">
+          <div class="muted" style="font-size:12px;margin-bottom:2px">AF detector (dBFS)</div>
+          <canvas id="histAf" style="height:110px"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Site statistics &amp; suggested offsets</h3>
+        <p class="muted" style="margin-top:0">Computed from the last <span id="stWin">6 h</span> of history: how far the idle RSSI wanders above the floor, and how far real carriers lift it.</p>
+        <dl class="kv">
+          <dt>Floor drift</dt><dd id="stFloor">–</dd>
+          <dt>Idle excursion (95%)</dt><dd id="stIdle">–</dd>
+          <dt>Typical carrier lift</dt><dd id="stLift">–</dd>
+          <dt>Samples</dt><dd id="stN">–</dd>
+          <dt>Current offsets on / off</dt><dd id="stCur">–</dd>
+          <dt>Suggested on / off</dt><dd id="stSug">–</dd>
+        </dl>
+        <div class="row" style="margin-top:12px"><button class="btn pri" id="stApply" onclick="applySuggest()">Use suggested offsets</button>
+          <span class="muted" id="stNote"></span></div>
       </div>
     </div>
   </section>
@@ -323,9 +363,9 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab === 'recs') loadRecs();
   if (b.dataset.tab === 'setup') loadCfg();
+  if (b.dataset.tab === 'history') loadHist();
   location.hash = b.dataset.tab;
 });
-if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
 
 function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(toast.h); toast.h=setTimeout(()=>e.classList.remove('on'),2600); }
 async function post(url, body){
@@ -386,6 +426,8 @@ function render(s){
   m.querySelector('.mark.on').style.left = pct(s.on_v)+'%';
   m.querySelector('.mark.off').style.left = pct(s.off_v)+'%';
   $('onV').textContent = (+s.on_v).toFixed(2)+' V'; $('offV').textContent = (+s.off_v).toFixed(2)+' V';
+  $('rssiMode').innerHTML = s.rssi_mode === 'adaptive' ? `<span class="pill g">adaptive</span> floor ${s.rssi_floor.toFixed(3)} V`
+    : s.rssi_mode === 'learning' ? '<span class="pill a">learning floor…</span> using fixed' : '<span class="pill">fixed</span>';
   const dt = s.detect, used = dt.sources;
   const chip = (k, label, val) => `<span class="pill ${val ? 'a' : ''}" style="${used.includes(k) ? '' : 'opacity:.4'}">${label} ${val==null ? '–' : val ? '●' : '○'}</span>`;
   $('srcChips').innerHTML = chip('rssi','RSSI',dt.rssi) + chip('cor','COR',dt.cor) + chip('af','AF',dt.af)
@@ -527,8 +569,8 @@ const SCHEMA = [
  ['detect','Carrier detection',[
    ['sources','Trigger sources','multi','Any mix of RSSI (ADS1115), COR (K5TRA or Pi pin) and AF (the receiver audio itself).',['rssi','cor','af']],
    ['combine','Combine sources','select','any = whichever fires first; all = every selected source must agree.',['any','all']],
-   ['on_threshold_v','On threshold (V)','num','RSSI at or above this opens the detector.'],
-   ['off_threshold_v','Off threshold (V)','num','RSSI at or below this closes it. Keep below the on threshold for hysteresis.'],
+   ['on_threshold_v','Fixed on threshold (V)','num','Used in fixed RSSI mode, and while the adaptive floor is still being learned.'],
+   ['off_threshold_v','Fixed off threshold (V)','num','Keep below the on threshold for hysteresis.'],
    ['attack_ms','Attack (ms)','int','Carrier must hold this long before it counts. Filters clicks and blips.'],
    ['hang_ms','Hang (ms)','int','Carrier must be gone this long before the over ends.']]],
  ['afdetect','AF carrier detection',[
@@ -549,7 +591,12 @@ const SCHEMA = [
    ['divider_ratio','Divider ratio','num','Input volts = ADC volts × ratio. 2.0 for a 10k/10k divider.'],
    ['sample_hz','Sample rate (Hz)','int'],
    ['smoothing','Smoothing (samples)','int'],
-   ['invert','Inverted RSSI','bool','Tick if the voltage falls as signal rises.']]],
+   ['invert','Inverted RSSI','bool','Tick if the voltage falls as signal rises.'],
+   ['threshold_mode','Threshold mode','select','adaptive: track the idle floor and trigger on an offset above it, so drift does not matter. fixed: absolute volts.',['adaptive','fixed']],
+   ['on_offset_v','Adaptive on offset (V)','num','Carrier when RSSI rises this far above the floor. See the History tab for a suggestion.'],
+   ['off_offset_v','Adaptive off offset (V)','num','Clear when RSSI falls back within this of the floor.'],
+   ['floor_window_s','Floor window (s)','int','Idle history used to estimate the floor.'],
+   ['floor_percentile','Floor percentile','int','Low percentile of idle readings taken as the floor.']]],
  ['cor','COR input',[
    ['enabled','Enabled','bool'],
    ['backend','Source','select','k5tra = the K5TRA COR input; gpio = a Pi pin',['k5tra','gpio']],
@@ -680,6 +727,77 @@ $('saveBtn').onclick = async () => {
   if (j.ok) { CFG = j.config; toast('Saved and applied'); $('saveNote').textContent = j.note || ''; }
 };
 
+// ---------- history ----------
+let hMin = 60, hTimer = null, hData = null, hStats = null;
+document.querySelectorAll('#hRange button').forEach(b => b.onclick = () => {
+  hMin = +b.dataset.m; document.querySelectorAll('#hRange button').forEach(x => x.classList.toggle('pri', x === b)); loadHist(); });
+async function loadHist(){
+  clearTimeout(hTimer);
+  if (!document.getElementById('history').classList.contains('on')) return;
+  [hData, hStats] = await Promise.all([(await fetch('/api/history?minutes=' + hMin)).json(),
+                                       (await fetch('/api/history/stats?minutes=' + Math.max(hMin, 360))).json()]);
+  drawHist(); renderStats();
+  hTimer = setTimeout(loadHist, hMin <= 10 ? 2000 : 10000);
+}
+function fmtClock(t){ return new Date(t*1000).toLocaleTimeString([], {hour12:false, hour:'2-digit', minute:'2-digit'}); }
+function setupCanvas(c){ const dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w*dpr) { c.width = w*dpr; c.height = h*dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h); return [g, w, h]; }
+function drawHist(){
+  const rows = hData.rows, c = $('histC'); const [g, w, h] = setupCanvas(c);
+  const L = 40, R = 6, T = 6, B = 18, pw = w - L - R, ph = h - T - B;
+  const now = Date.now()/1000, t0 = now - hMin*60, X = t => L + (t - t0) / (hMin*60) * pw;
+  g.font = '11px ui-monospace,monospace'; g.fillStyle = '#6e7681';
+  if (!rows.length) { g.fillText('No history yet.', L + 8, T + 20); return; }
+  let lo = Infinity, hi = -Infinity;
+  rows.forEach(r => { [r[1], r[3], r[6], r[7], r[8]].forEach(v => { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); });
+  const pad = Math.max(0.05, (hi - lo) * 0.08); lo -= pad; hi += pad;
+  const Y = v => T + ph - (v - lo) / (hi - lo) * ph;
+  const bw = Math.max(1, pw / rows.length + 0.5);
+  rows.forEach(r => { if (r[5]) { g.fillStyle = 'rgba(248,81,73,.22)'; g.fillRect(X(r[0]), T, bw, ph); }
+                      else if (r[4]) { g.fillStyle = 'rgba(227,160,8,.18)'; g.fillRect(X(r[0]), T, bw, ph); } });
+  g.strokeStyle = '#21262d'; g.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const v = lo + (hi - lo) * k / 4; g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke();
+    g.fillStyle = '#6e7681'; g.fillText(v.toFixed(2), 2, Y(v) + 4); }
+  for (let k = 0; k <= 4; k++) { const t = t0 + hMin*60*k/4; g.fillText(fmtClock(t), Math.min(X(t) - (k ? 16 : 0), w - 36), h - 4); }
+  // min-max band
+  g.fillStyle = 'rgba(63,185,80,.18)';
+  rows.forEach(r => { if (r[1] != null) g.fillRect(X(r[0]), Y(r[3]), bw, Math.max(1, Y(r[1]) - Y(r[3]))); });
+  const line = (j, col, dash) => { g.strokeStyle = col; g.setLineDash(dash || []); g.lineWidth = j === 2 ? 1.5 : 1.2; g.beginPath(); let pen = false;
+    rows.forEach(r => { const v = r[j]; if (v == null) { pen = false; return; } const x = X(r[0]) + bw/2;
+      pen ? g.lineTo(x, Y(v)) : g.moveTo(x, Y(v)); pen = true; }); g.stroke(); g.setLineDash([]); };
+  line(7, 'rgba(227,160,8,.8)', [4,3]); line(8, 'rgba(88,166,255,.8)', [4,3]); line(6, '#8b949e'); line(2, '#3fb950');
+  // AF panel
+  const hasAf = rows.some(r => r[9] != null); $('hAfWrap').style.display = hasAf ? '' : 'none';
+  if (hasAf) { const [a, w2, h2] = setupCanvas($('histAf')); const pw2 = w2 - L - R, ph2 = h2 - 8;
+    const X2 = t => L + (t - t0) / (hMin*60) * pw2, Y2 = v => 4 + ph2 - (Math.max(-90, Math.min(0, v)) + 90) / 90 * ph2;
+    rows.forEach(r => { if (r[4]) { a.fillStyle = 'rgba(227,160,8,.15)'; a.fillRect(X2(r[0]), 4, bw, ph2); } });
+    a.font = '11px ui-monospace,monospace'; a.fillStyle = '#6e7681'; [-80,-60,-40,-20].forEach(v => a.fillText(v, 8, Y2(v) + 4));
+    a.strokeStyle = '#bc8cff'; a.lineWidth = 1.3; a.beginPath(); let pen = false;
+    rows.forEach(r => { if (r[9] == null) { pen = false; return; } const x = X2(r[0]); pen ? a.lineTo(x, Y2(r[9])) : a.moveTo(x, Y2(r[9])); pen = true; });
+    a.stroke(); }
+}
+function renderStats(){
+  const st = hStats, v = x => x == null ? '–' : x.toFixed(3) + ' V';
+  $('stWin').textContent = st.window_min >= 60 ? (st.window_min/60) + ' h' : st.window_min + ' min';
+  $('stFloor').textContent = st.floor_min == null ? '–' : `${st.floor_min.toFixed(3)} – ${st.floor_max.toFixed(3)} V`;
+  $('stIdle').textContent = st.idle_p95 == null ? '–' : '+' + v(st.idle_p95);
+  $('stLift').textContent = st.carrier_lift == null ? 'no carriers yet' : '+' + v(st.carrier_lift);
+  $('stN').textContent = `${Math.round(st.idle_s/60)} min idle · ${st.carrier_s} s carrier`;
+  $('stCur').textContent = CFG_R ? `${CFG_R.on_offset_v} / ${CFG_R.off_offset_v} V` : '–';
+  $('stSug').textContent = st.suggest_on == null ? 'need ≥ 1 min idle' : `${st.suggest_on} / ${st.suggest_off} V`;
+  $('stApply').disabled = st.suggest_on == null;
+  $('stNote').textContent = st.carrier_lift == null && st.suggest_on != null ? 'No carriers seen yet: suggestion is from noise only.' : '';
+}
+let CFG_R = null;
+fetch('/api/config').then(r => r.json()).then(c => { CFG_R = c.rssi; });
+async function applySuggest(){
+  if (!hStats || hStats.suggest_on == null) return;
+  const c = await (await fetch('/api/config')).json();
+  c.rssi.threshold_mode = 'adaptive'; c.rssi.on_offset_v = hStats.suggest_on; c.rssi.off_offset_v = hStats.suggest_off;
+  const j = await post('/api/config', c); if (j.ok) { CFG_R = j.config.rssi; toast('Adaptive offsets applied'); renderStats(); }
+}
+
 // ---------- test helpers ----------
 let capF = null, capS = null, capFa = null, capSa = null;
 function afProp(){
@@ -702,8 +820,10 @@ function cap(which){
 }
 async function applyThresh(){
   const c = await (await fetch('/api/config')).json(); let did = [];
-  if (capF!=null && capS!=null && capS-capF>0.05) { const span = capS-capF;
-    c.detect.on_threshold_v = +(capF+span*0.7).toFixed(3); c.detect.off_threshold_v = +(capF+span*0.3).toFixed(3); did.push('RSSI'); }
+  if (capF!=null && capS!=null && Math.abs(capS-capF)>0.05) { const span = capS-capF;
+    if (c.rssi.threshold_mode === 'adaptive') {        // offsets from the floor
+      c.rssi.on_offset_v = +Math.abs(span*0.6).toFixed(3); c.rssi.off_offset_v = +Math.abs(span*0.3).toFixed(3); did.push('RSSI offsets');
+    } else { c.detect.on_threshold_v = +(capF+span*0.7).toFixed(3); c.detect.off_threshold_v = +(capF+span*0.3).toFixed(3); did.push('RSSI'); } }
   const p = afProp();
   if (p) { const k = S.detect.af_mode === 'noise' ? 'noise' : 'level';
     c.afdetect[k+'_on_dbfs'] = p.on; c.afdetect[k+'_off_dbfs'] = p.off; did.push('AF'); }
@@ -718,6 +838,8 @@ async function calCap(n){
   const j = await post('/api/config', c);
   if (j.ok) $('calInfo').textContent = `Point ${n}: ${S.rssi_v.toFixed(3)} V = ${dbm} dBm saved.`;
 }
+// open the tab named in the URL once everything above is defined
+if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
 </script>
 </body>
 </html>

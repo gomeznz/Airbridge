@@ -118,6 +118,21 @@ async def api_events():
     return list(engine.events)
 
 
+# ---------- history ----------
+@app.get("/api/history")
+async def history(minutes: float = 60):
+    secs = max(60, min(int(minutes * 60), 86400))
+    return engine.history.query(secs, time.time())
+
+
+@app.get("/api/history/stats")
+async def history_stats(minutes: float = 360):
+    secs = max(300, min(int(minutes * 60), 86400))
+    st = engine.history.stats(secs, time.time(), bool(config["rssi"].get("invert")))
+    st["window_min"] = secs // 60
+    return st
+
+
 # ---------- recordings ----------
 @app.get("/api/recordings")
 async def recordings(limit: int = 50, offset: int = 0):

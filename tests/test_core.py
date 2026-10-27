@@ -173,3 +173,50 @@ def test_af_source_any_and_all():
 def test_legacy_source_mapping():
     assert sources_of({"source": "either"}) == ["rssi", "cor"]
     assert sources_of({"sources": ["af"]}) == ["af"]
+
+
+# ---------- adaptive RSSI floor ----------
+def test_adaptive_floor_follows_drift_and_ignores_carriers():
+    det = {"sources": ["rssi"], "combine": "any", "on_threshold_v": 5.0, "off_threshold_v": 4.0,
+           "attack_ms": 0, "hang_ms": 200}
+    rcfg = {"smoothing": 1, "invert": False, "threshold_mode": "adaptive", "sample_hz": 20,
+            "floor_window_s": 30, "floor_percentile": 20, "on_offset_v": 0.15, "off_offset_v": 0.08}
+    d = CarrierDetector(det, rcfg)
+    t, events = 0.0, []
+    # 2 min of floor drifting 0.40 -> 0.70 V with a +0.5 V carrier every 15 s for 1 s.
+    # A fixed threshold either misses carriers early or false-triggers late; adaptive must do neither.
+    rng = np.random.default_rng(1)
+    for i in range(2400):
+        floor = 0.40 + 0.30 * i / 2400
+        car = (i % 300) >= 280
+        v = floor + (0.5 if car else 0.0) + rng.normal(0, 0.01)
+        e = d.update(v, None, t)
+        if e:
+            events.append(e)
+        t += 0.05
+    assert d.adaptive
+    assert events.count("start") == 8 and events.count("end") >= 7     # last carrier still up at the end
+    assert abs(d.floor.floor - 0.70) < 0.08                              # percentile lags a steady ramp slightly
+
+
+def test_adaptive_recovers_from_floor_step():
+    """A step up in the floor (e.g. new interference) must not latch the detector on forever."""
+    det = {"sources": ["rssi"], "on_threshold_v": 5.0, "off_threshold_v": 4.0, "attack_ms": 0, "hang_ms": 0}
+    rcfg = {"smoothing": 1, "threshold_mode": "adaptive", "sample_hz": 20, "floor_window_s": 30,
+            "floor_percentile": 20, "on_offset_v": 0.15, "off_offset_v": 0.08, "max_carrier_s": 10}
+    d = CarrierDetector(det, rcfg)
+    t = 0.0
+    for i in range(600):                       # 30 s at 0.5 V, then the floor steps to 1.0 V
+        d.update(0.5 if i < 300 else 1.0, None, t)
+        t += 0.05
+    for i in range(300):                       # 15 more seconds at the new floor
+        d.update(1.0, None, t)
+        t += 0.05
+    assert d.relearned == 1 and d.state == "idle" and abs(d.floor.floor - 1.0) < 0.01
+
+
+def test_adaptive_falls_back_to_fixed_until_learned():
+    det = {"sources": ["rssi"], "on_threshold_v": 1.2, "off_threshold_v": 1.0, "attack_ms": 0, "hang_ms": 0}
+    d = CarrierDetector(det, {"smoothing": 1, "threshold_mode": "adaptive", "sample_hz": 20,
+                              "on_offset_v": 0.15, "off_offset_v": 0.08})
+    assert not d.adaptive and d.thresholds() == (1.2, 1.0)

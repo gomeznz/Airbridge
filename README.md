@@ -80,6 +80,25 @@ Then open `http://<pi-ip>:8080`, go to **Setup**, and enter the NXR's IP address
 
 AirBridge listens on UDP 5062 for SIP by default, with RTP on random even ports between 16384 and 32766. If the NXR only sends to 5060, change *Local SIP port*.
 
+## RSSI thresholds: adaptive floor tracking
+
+The A210 has no COR output, and an RSSI tap on its AGC line drifts with temperature, supply voltage and the site noise floor. This is why a fixed threshold, or a hardware Schmitt trigger, is hard to keep set.
+
+In **adaptive** mode (the default), AirBridge tracks the idle floor continuously:
+- The floor is the 20th percentile of the last 120 s of readings, taken only while no carrier is present, so carriers can't pull it up.
+- The detector triggers at floor + *on offset* and clears at floor + *off offset*, so the thresholds move with the drift.
+- Until the floor has been learned (about 5 s after start), the fixed thresholds are used.
+- If RSSI stays "high" longer than *max carrier* (120 s), that isn't a real over: the floor has stepped (new interference, a supply change). The floor is re-learned and an alarm is logged, so the detector can never stick on.
+
+The **History** tab keeps 24 h of RSSI at 1 s resolution, and it survives restarts. It shows:
+- RSSI as a min/max band and mean, with the floor, the effective on/off thresholds, and shading for carrier and TX.
+- The AF detector trace, when AF is in use.
+- Site statistics: floor drift, idle excursion above the floor, and typical carrier lift. From these it suggests on/off offsets, which one button applies.
+
+Leave it running for a few hours, including some real traffic, before using the suggestion. For a belt-and-braces trigger, use RSSI + AF noise with *all*.
+
+**Tap hardware.** Buffer the AGC/RSSI tap with a rail-to-rail op-amp follower and a small RC (10–20 ms) before the ADS1115, and power the ADS1115 from a clean 3.3 V. Loading the AGC line directly can change the radio's own AGC behaviour and adds noise to the reading.
+
 ## Carrier detection sources
 
 Pick any combination in Setup → *Trigger sources*. *Combine* = **any** fires on whichever source sees a carrier first. **all** requires every selected source to agree, which is useful for rejecting false triggers.

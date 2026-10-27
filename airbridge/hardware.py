@@ -56,6 +56,8 @@ class SimRadio:
         self._next_auto = time.time() + 10
         self.idle_v = 0.45
         self.carrier_v = 2.1
+        self.drift_v = 0.25         # slow floor wander amplitude
+        self.drift_period_s = 900
         self.ptt = False            # mirrors the K5TRA PTT in simulation
         self.tone = False           # inject a 1 kHz test tone on RX audio
         self.tone_snr = 35.0
@@ -74,8 +76,10 @@ class SimRadio:
     def rssi_v(self):
         # worst case: the A210's RSSI line reads high while it transmits,
         # which is exactly what the TX guard in the engine must ignore
-        base = self.carrier_v if (self.carrier() or self.ptt or self.tone) else self.idle_v
-        return max(0.0, base + random.gauss(0, 0.03) + 0.05 * math.sin(time.time() * 3))
+        # idle floor drifts slowly (temperature / supply / site noise), as a real AGC tap does
+        floor = self.idle_v + self.drift_v * math.sin(2 * math.pi * time.time() / self.drift_period_s)
+        lift = (self.carrier_v - self.idle_v) if (self.carrier() or self.ptt or self.tone) else 0.0
+        return max(0.0, floor + lift + random.gauss(0, 0.015) + 0.01 * math.sin(time.time() * 3))
 
 
 SIM = SimRadio()

@@ -25,6 +25,12 @@ DEFAULTS = {
         "sample_hz": 20,
         "smoothing": 4,             # moving-average length (samples)
         "invert": False,            # True if RSSI voltage FALLS with signal
+        "threshold_mode": "adaptive",   # adaptive (track the idle floor) | fixed (detect.on/off_threshold_v)
+        "floor_window_s": 120,      # idle history used for the floor
+        "floor_percentile": 20,     # low percentile of idle samples = floor
+        "on_offset_v": 0.15,        # adaptive: carrier when RSSI >= floor + this
+        "off_offset_v": 0.08,       # adaptive: clear when RSSI <= floor + this
+        "max_carrier_s": 120,       # adaptive: RSSI 'carrier' longer than this = the floor moved; re-learn (0 = off)
         # optional two-point calibration to dBm (blank = volts only)
         "cal_v1": None, "cal_dbm1": None,
         "cal_v2": None, "cal_dbm2": None,
