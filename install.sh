@@ -5,6 +5,7 @@ set -euo pipefail
 APP=/opt/airbridge
 DATA=/var/lib/airbridge
 SVC_USER=airbridge
+SRC="$(cd "$(dirname "$0")" && pwd)"      # the folder install.sh lives in (your git clone)
 
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo"; exit 1; fi
 
@@ -25,16 +26,18 @@ echo "==> user and folders"
 id -u $SVC_USER >/dev/null 2>&1 || useradd --system --home $DATA --shell /usr/sbin/nologin $SVC_USER
 for g in audio gpio i2c; do getent group $g >/dev/null && usermod -aG $g $SVC_USER; done
 mkdir -p $APP $DATA
-rsync -a --delete --exclude .git --exclude venv "$(dirname "$0")/" $APP/
+rsync -a --delete --exclude .git --exclude venv --exclude version.json "$SRC/" $APP/
 chown -R $SVC_USER:$SVC_USER $DATA
 
 echo "==> version"
+# git refuses to read a repo owned by another user when run as root; allow just this one
+G() { git -c safe.directory="$SRC" -C "$SRC" "$@"; }
 VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$SRC/airbridge/__init__.py")
-if git -C "$SRC" rev-parse HEAD >/dev/null 2>&1; then
-  COMMIT=$(git -C "$SRC" rev-parse --short HEAD)
-  DESCRIBE=$(git -C "$SRC" describe --tags --always --dirty 2>/dev/null || echo "$COMMIT")
-  CDATE=$(git -C "$SRC" show -s --format=%cI HEAD)
-  DIRTY=$([[ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]] && echo true || echo false)
+if G rev-parse HEAD >/dev/null 2>&1; then
+  COMMIT=$(G rev-parse --short HEAD)
+  DESCRIBE=$(G describe --tags --always --dirty 2>/dev/null || echo "$COMMIT")
+  CDATE=$(G show -s --format=%cI HEAD)
+  DIRTY=$([[ -n "$(G status --porcelain --untracked-files=no)" ]] && echo true || echo false)
 else
   COMMIT=""; DESCRIBE=""; CDATE=""; DIRTY=false
 fi
@@ -53,12 +56,18 @@ $APP/venv/bin/pip install -q -r $APP/requirements.txt
 echo "==> service"
 cp $APP/airbridge.service /etc/systemd/system/airbridge.service
 systemctl daemon-reload
-systemctl enable --now airbridge
+systemctl enable airbridge >/dev/null 2>&1
+systemctl restart airbridge          # restart, so an upgrade runs the new code
 
 IP=$(hostname -I | awk '{print $1}')
+sleep 4
 echo
+if ! systemctl is-active --quiet airbridge; then
+  echo "!! AirBridge did not start. Last log lines:"
+  journalctl -u airbridge -n 25 --no-pager
+  exit 1
+fi
 echo "AirBridge v$VER is running: http://$IP:8080"
-sleep 3
 if [[ -f $DATA/setup-code.txt ]]; then
   echo
   echo "First-time setup: open http://$IP:8080/setup and create the admin account."
