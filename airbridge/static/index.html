@@ -70,6 +70,7 @@ canvas{width:100%;height:90px;display:block;margin-top:10px}
 .log div{padding:5px 0;border-bottom:1px solid #21262d;display:flex;gap:10px}
 .log time{color:var(--dim);flex:none}
 .log .error{color:var(--red)} .log .carrier{color:var(--amber)} .log .sip{color:var(--blue)}
+.log .alarm{color:#ff9b8f} .log .tx{color:var(--violet)}
 
 /* recordings */
 .rec{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:12px 0;border-bottom:1px solid #21262d}
@@ -92,6 +93,19 @@ legend{padding:0 6px;font-weight:600}
 .f .help{font-size:12.5px;color:var(--dim);margin-top:3px}
 input[type=text],input[type=number],input[type=password],select{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:14px var(--mono)}
 input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top:8px}
+@media(min-width:1100px){
+  #cfgForm{columns:2;column-gap:12px}
+  #cfgForm fieldset{break-inside:avoid;display:inline-block;width:100%}
+  #cfgForm .f{grid-template-columns:190px 1fr}
+  .rec{grid-template-columns:340px 1fr 220px;align-items:center}
+  .rec .t{white-space:nowrap}
+  .rec audio{grid-column:auto;grid-row:1}
+  .rec > div:first-child{grid-column:1;grid-row:1}
+  .rec > div:nth-child(2){grid-column:3;grid-row:1;display:flex;gap:8px;align-items:center;justify-content:flex-end}
+  .rec > div:nth-child(2) br{display:none}
+  .rec > div:nth-child(2) .btn{margin-top:0 !important}
+  .rec .meta.det{grid-column:1;grid-row:2;margin-top:-4px}
+}
 .savebar{position:sticky;bottom:0;padding:12px 0;background:linear-gradient(transparent,var(--bg) 30%);display:flex;gap:8px;align-items:center}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#21262d;border:1px solid var(--line);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;max-width:90vw}
 .toast.on{opacity:1}
@@ -159,7 +173,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
   <!-- STATUS -->
   <section id="status" class="on">
     <div class="grid">
-      <div class="card s6">
+      <div class="card s4" style="order:1">
         <div class="hero">
           <div class="lamp" id="lamp"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round"><path d="M4 18a8 8 0 0 1 16 0"/><path d="M8 18a4 4 0 0 1 8 0"/><circle cx="12" cy="18" r="1.4" fill="#111"/></svg></div>
           <div>
@@ -175,7 +189,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         </div>
       </div>
 
-      <div class="card s6">
+      <div class="card s8" style="order:2">
         <h3>Carrier detection</h3>
         <div class="row" id="srcChips" style="margin-bottom:10px"></div>
         <div class="readout"><b id="rssiV">–</b><span id="rssiDbm" class="muted"></span></div>
@@ -189,7 +203,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <canvas id="spark"></canvas>
       </div>
 
-      <div class="card s4">
+      <div class="card s4" style="order:3">
         <h3>Transmit (NXR → A210)</h3>
         <div class="hero"><div class="lamp" id="pttLamp" style="width:48px;height:48px"></div>
           <div><div class="big" id="pttText" style="font-size:20px">RX</div><div class="sub" id="pttSub">idle</div></div></div>
@@ -201,19 +215,19 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <div class="row need-op" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
       </div>
 
-      <div class="card s8" id="lcdCard">
+      <div class="card s4" id="lcdCard" style="order:6">
         <div class="row" style="justify-content:space-between"><h3 style="margin:0">Front panel LCD</h3><span class="muted" id="lcdInfo"></span></div>
         <div style="margin-top:10px"><div class="lcd" id="lcdBox"><pre id="lcdText"></pre></div></div>
       </div>
 
-      <div class="card s4">
+      <div class="card s4" style="order:5">
         <h3>Relay output</h3>
         <div class="hero"><div class="lamp" id="relayLamp" style="width:48px;height:48px"></div>
           <div><div class="big" id="relayText" style="font-size:20px">OFF</div><div class="sub" id="relaySub">auto</div></div></div>
         <div class="legend" style="margin-top:12px"><span id="audDev"></span></div>
       </div>
 
-      <div class="card s4">
+      <div class="card s4" style="order:4">
         <h3>SIP → NXR</h3>
         <dl class="kv">
           <dt>Call</dt><dd><span class="pill" id="sipState">idle</span></dd>
@@ -226,7 +240,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <div class="muted" id="sipErr" style="margin-top:8px"></div>
       </div>
 
-      <div class="card">
+      <div class="card s8" style="order:7">
         <h3>AF levels</h3>
         <div class="af2">
           <div class="afm"><div class="top"><span><span class="dir rx">RX</span>Airband in</span><b id="rxDb">–</b></div>
@@ -238,7 +252,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" style="order:8">
         <h3>Events</h3>
         <div class="log" id="log"></div>
       </div>
@@ -658,7 +672,7 @@ async function loadRecs(){
       <div style="text-align:right"><span class="pill ${cls}" title="${r.forward_detail||''}">${label}</span><br>
       <button class="btn sm dng need-op" style="margin-top:6px">Delete</button></div>
       ${r.file ? `<audio controls preload="none" src="/api/recordings/${r.id}/audio"></audio>` : ''}`;
-    if (r.forward_detail) { const m=document.createElement('div'); m.className='meta'; m.style.gridColumn='1/-1'; m.textContent=r.forward_detail; d.append(m); }
+    if (r.forward_detail) { const m=document.createElement('div'); m.className='meta det'; m.style.gridColumn='1/-1'; m.textContent=r.forward_detail; d.append(m); }
     d.querySelector('button').onclick = async () => { if (!confirm('Delete this recording?')) return;
       await fetch('/api/recordings/'+r.id,{method:'DELETE'}); loadRecs(); };
     L.append(d);

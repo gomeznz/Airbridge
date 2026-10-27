@@ -220,7 +220,7 @@ class Engine:
                 self.det.state = "idle"           # over was in hang: close it before transmitting
                 self._end_over()
         oid = self.store.new_over(now, "tx", "transmitted" if kind == "tx" else "dropped")
-        self.burst = {"id": oid, "started": now, "kind": kind}
+        self.burst = {"id": oid, "started": now, "kind": kind, "local": bool(self.tx.local)}
         self.last_activity = now
         if c["tx"]["record"] and c["record"]["enabled"]:
             self.tx_rec = OverRecording(self.store, oid, now, c["record"]["format"])
@@ -235,11 +235,12 @@ class Engine:
             return
         now = time.time()
         self.last_activity = now
-        alarms = afmeter.check_over_alarms(res, self.config["af"], "NXR audio") if result == "transmitted" else []
+        label = "TX test tone" if b.get("local") else "NXR audio"
+        alarms = afmeter.check_over_alarms(res, self.config["af"], label) if result == "transmitted" else []
         for a in alarms:
             self.event("alarm", a)
         self.store.update(b["id"], ended=now, duration=round(now - b["started"], 2), forward=result,
-                          forward_detail=detail, avg_dbfs=res.get("avg_dbfs"), peak_dbfs=res.get("peak_dbfs"),
+                          forward_detail=detail or ("TX test tone" if b.get("local") else None), avg_dbfs=res.get("avg_dbfs"), peak_dbfs=res.get("peak_dbfs"),
                           clips=res.get("clips"), alarms=json.dumps(alarms) if alarms else None)
         rec, self.tx_rec = self.tx_rec, None
         if rec:
