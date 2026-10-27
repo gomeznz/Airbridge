@@ -154,6 +154,7 @@ class SipUA:
         self.reg_error = None
         self._reg_task = None
         self.last_error = None
+        self.on_incoming = None     # callback(SipCall) for answered inbound calls
 
     # ---------- transport ----------
     async def start(self):
@@ -205,6 +206,8 @@ class SipUA:
         call = self.call
         in_dialog = call and req.get("call-id") == call.call_id
         if req.method == "ACK":
+            if in_dialog:
+                call._got_ack()
             return
         if req.method == "BYE" and in_dialog:
             self._reply(req, addr, 200, "OK")
@@ -220,7 +223,7 @@ class SipUA:
             self._reply(req, addr, 200, "OK")
             return
         if req.method == "INVITE":
-            self._reply(req, addr, 486, "Busy Here")    # we only place calls
+            self._incoming(req, addr)
             return
         self._reply(req, addr, 481 if req.method in ("BYE", "CANCEL") else 405,
                     "Call/Transaction Does Not Exist" if req.method in ("BYE", "CANCEL") else "Method Not Allowed")
@@ -243,8 +246,38 @@ class SipUA:
         text = "\r\n".join(lines) + "\r\n" + extra + f"Content-Length: {len(body)}\r\n\r\n" + body
         self._send(text, addr)
 
+    # ---------- inbound calls ----------
+    def _allowed(self, host):
+        allow = {self.cfg["target_host"].strip()}
+        allow |= {h.strip() for h in (self.cfg.get("inbound_allow") or "").split(",") if h.strip()}
+        return host in allow
+
+    def _incoming(self, req, addr):
+        if not self.cfg.get("inbound_enabled", True):
+            self._reply(req, addr, 403, "Forbidden")
+            return
+        if not self._allowed(addr[0]):
+            log.warning("inbound INVITE from %s refused (not allowed)", addr[0])
+            self._reply(req, addr, 403, "Forbidden")
+            return
+        if self.call and self.call.state not in ("ended", "failed"):
+            if self.call.call_id == req.get("call-id"):
+                return                               # retransmission while we answer
+            self._reply(req, addr, 486, "Busy Here")
+            return
+        call = SipCall(self, deque(), None, direction="in")
+        ok, code, reason = call.prepare_inbound(req, addr)
+        if not ok:
+            self._reply(req, addr, code, reason)
+            return
+        self.call = call
+        if self.on_incoming:
+            self.on_incoming(call)                   # engine sets on_state etc.
+        self._reply(req, addr, 100, "Trying")
+        asyncio.create_task(call.answer(req, addr))
+
     # ---------- client transactions ----------
-    async def transact(self, build, method, final_timeout=32.0, invite=False):
+    async def transact(self, build, method, final_timeout=32.0, invite=False, addr=None):
         """Send a request built by build(branch) with retransmission.
 
         Returns the final response (or None on timeout). Provisional
@@ -257,7 +290,7 @@ class SipUA:
         try:
             interval, deadline = T1, time.monotonic() + final_timeout
             got_prov = False
-            self._send(text)
+            self._send(text, addr)
             nxt = time.monotonic() + interval
             while time.monotonic() < deadline:
                 wait = max(0.01, (nxt if not got_prov else deadline) - time.monotonic())
@@ -265,7 +298,7 @@ class SipUA:
                     msg = await asyncio.wait_for(q.get(), timeout=min(wait, deadline - time.monotonic() + 0.01))
                 except asyncio.TimeoutError:
                     if not got_prov and time.monotonic() >= nxt:
-                        self._send(text)
+                        self._send(text, addr)
                         interval = min(interval * 2, 4.0)
                         nxt = time.monotonic() + interval
                     continue
@@ -336,8 +369,16 @@ class SipUA:
 
 
 class SipCall:
-    def __init__(self, ua: SipUA, frames: deque, on_state=None):
+    def __init__(self, ua: SipUA, frames: deque, on_state=None, direction="out"):
         self.ua = ua
+        self.direction = direction
+        self.peer_addr = None
+        self.remote_from = None          # inbound: the caller's From header
+        self.local_to = None             # inbound: the To header we answered with
+        self.rx_frames = deque(maxlen=600)   # decoded audio from the far end (12 s cap)
+        self.rx_packets = 0
+        self.last_rx = 0.0
+        self._acked = asyncio.Event()
         self.cfg = ua.cfg
         self.frames = frames
         self.on_state = on_state
@@ -354,7 +395,7 @@ class SipCall:
         self.ended = asyncio.Event()
         name = self.cfg["codec"].upper()
         self.codec_name = name if name in CODECS else "PCMU"
-        self.pt, self.enc, _ = CODECS[self.codec_name]
+        self.pt, self.enc, self.dec = CODECS[self.codec_name]
         self.dtmf_pt = None
         self.rtp_sock = None
         self.rtp_port = None
@@ -362,7 +403,7 @@ class SipCall:
         self._rtp_task = None
         self._dtmf_queue = deque()
         self._last_invite_ack = None
-        self._gain = 10 ** (float(self.cfg["tx_gain_db"]) / 20)
+        self._gain = 10 ** (float(self.cfg["send_gain_db"]) / 20)
         self.packets_sent = 0
 
     # ----- helpers -----
@@ -385,10 +426,14 @@ class SipCall:
         return f"sip:{user + '@' if user else ''}{host}:{port}"
 
     def _from(self):
+        if self.direction == "in":
+            return self.local_to
         return (f'"{self.cfg["display_name"]}" <sip:{self.cfg["local_user"]}@{self.ua.local_ip}:'
                 f'{self.cfg["local_port"]}>;tag={self.local_tag}')
 
     def _to(self):
+        if self.direction == "in":
+            return self.remote_from
         return f"<{self.target_uri}>" + (f";tag={self.remote_tag}" if self.remote_tag else "")
 
     def _contact(self):
@@ -461,7 +506,7 @@ class SipCall:
     def _next_hop(self):
         uri = _uri(self.route[0]) if self.route else (self.remote_target or None)
         if not uri:
-            return None
+            return self.peer_addr
         m = re.match(r"sips?:(?:[^@]+@)?([^:;>]+)(?::(\d+))?", uri)
         if not m:
             return None
@@ -515,7 +560,7 @@ class SipCall:
                     await self.hangup()
                     return self._fail(f"no common codec (remote offered {pts})")
                 self.codec_name = alt
-                self.pt, self.enc, _ = CODECS[alt]
+                self.pt, self.enc, self.dec = CODECS[alt]
             self.dtmf_pt = next((p for p, n in rtpmap.items() if n == "TELEPHONE-EVENT"), None)
             self.remote_rtp = (ip, port)
             self.answered_at = time.time()
@@ -523,6 +568,58 @@ class SipCall:
             self._rtp_task = asyncio.create_task(self._rtp_loop())
             return True
         return self._fail("authentication failed")
+
+    def prepare_inbound(self, req, addr):
+        """Validate an inbound INVITE's offer and pick a codec."""
+        self.call_id = req.get("call-id")
+        self.peer_addr = addr
+        self.remote_tag = _tag(req.get("from"))
+        self.remote_from = req.get("from")
+        self.local_to = req.get("to") + (f";tag={self.local_tag}" if "tag=" not in req.get("to", "") else "")
+        self.remote_target = _uri(req.get("contact")) or None
+        self.route = req.all("record-route")
+        ip, port, pts, rtpmap = parse_sdp(req.body)
+        if not ip or not port:
+            return False, 488, "Not Acceptable Here"
+        pref = [self.codec_name] + [n for n in CODECS if n != self.codec_name]
+        choice = next((n for n in pref if CODECS[n][0] in pts), None)
+        if not choice:
+            return False, 488, "Not Acceptable Here"
+        self.codec_name = choice
+        self.pt, self.enc, self.dec = CODECS[choice]
+        self.dtmf_pt = next((p for p, n in rtpmap.items() if n == "TELEPHONE-EVENT"), None)
+        self.remote_rtp = (ip, port)
+        try:
+            self.cseq = int(req.cseq[0]) % 1000 + 1      # our own CSeq space for BYE/INFO
+        except Exception:
+            self.cseq = 1
+        return True, 200, "OK"
+
+    async def answer(self, req, addr):
+        """Send 200 OK with SDP, retransmit until ACK, start media."""
+        try:
+            self._open_rtp()
+        except RuntimeError as e:
+            self.ua._reply(req, addr, 500, "Server Internal Error")
+            return self._fail(str(e))
+        self.started = time.time()
+        sdp = self.sdp()
+        self.answered_at = time.time()
+        self._set("connected")
+        self._rtp_task = asyncio.create_task(self._rtp_loop())
+        interval, deadline = T1, time.monotonic() + 32
+        while not self._acked.is_set() and time.monotonic() < deadline and self.state == "connected":
+            self.ua._reply(req, addr, 200, "OK", sdp=sdp, contact=True)
+            try:
+                await asyncio.wait_for(self._acked.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                interval = min(interval * 2, 4.0)
+        if not self._acked.is_set() and self.state == "connected":
+            log.warning("no ACK for inbound call; hanging up")
+            await self.hangup()
+
+    def _got_ack(self):
+        self._acked.set()
 
     def _fail(self, why):
         self._close_rtp()
@@ -543,7 +640,7 @@ class SipCall:
             def build(br, cseq=cseq, body=body):
                 t = self._request("INFO", br, cseq, body)
                 return t.replace("Content-Length:", "Content-Type: application/dtmf-relay\r\nContent-Length:", 1)
-            await self.ua.transact(build, "INFO", final_timeout=4)
+            await self.ua.transact(build, "INFO", final_timeout=4, addr=self._next_hop())
             await asyncio.sleep(0.25)
 
     async def _rtp_loop(self):
@@ -561,12 +658,7 @@ class SipCall:
         loop = asyncio.get_running_loop()
         try:
             while self.state == "connected":
-                # drain anything the far end sends us (keeps the socket buffer empty)
-                try:
-                    while True:
-                        sock.recv(2048)
-                except (BlockingIOError, OSError):
-                    pass
+                self._receive(sock)
 
                 if self._dtmf_queue and self.dtmf_pt is not None and self.cfg["dtmf_mode"] == "rfc2833":
                     d = self._dtmf_queue.popleft()
@@ -622,6 +714,28 @@ class SipCall:
         except asyncio.CancelledError:
             pass
 
+    def _receive(self, sock):
+        """Read every waiting RTP packet; decode audio into rx_frames."""
+        try:
+            while True:
+                pkt = sock.recv(2048)
+                if len(pkt) < 12 or (pkt[0] >> 6) != 2:
+                    continue
+                cc = pkt[0] & 0x0F
+                off = 12 + 4 * cc
+                if pkt[0] & 0x10 and len(pkt) >= off + 4:          # header extension
+                    off += 4 + 4 * struct.unpack("!H", pkt[off + 2:off + 4])[0]
+                payload = pkt[off:]
+                if pkt[0] & 0x20 and payload:                     # padding
+                    payload = payload[:-payload[-1]]
+                pt = pkt[1] & 0x7F
+                self.rx_packets += 1
+                if pt == self.pt and payload:
+                    self.rx_frames.append(self.dec(payload))
+                    self.last_rx = time.time()
+        except (BlockingIOError, OSError):
+            pass
+
     def buffered_ms(self):
         return sum(len(f) for f in list(self.frames)) / 8
 
@@ -633,7 +747,8 @@ class SipCall:
             self._rtp_task.cancel()
         self.cseq += 1
         cseq = self.cseq
-        resp, _ = await self.ua.transact(lambda br: self._request("BYE", br, cseq), "BYE", final_timeout=8)
+        resp, _ = await self.ua.transact(lambda br: self._request("BYE", br, cseq), "BYE", final_timeout=8,
+                                         addr=self._next_hop())
         self._close_rtp()
         self._set("ended", None if resp is not None else "no reply to BYE")
         self.ended.set()

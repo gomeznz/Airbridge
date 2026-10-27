@@ -189,6 +189,21 @@ async def test_hangup():
     return {"ok": True}
 
 
+@app.post("/api/test/tx")
+async def test_tx(seconds: float = 5.0, freq: float = 1000.0, level: float = -10.0):
+    try:
+        engine.test_tx(max(1.0, min(seconds, 30.0)), max(100.0, min(freq, 3500.0)), max(-60.0, min(level, 0.0)))
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/ptt/release")
+async def ptt_release():
+    engine.release_ptt()
+    return {"ok": True}
+
+
 @app.post("/api/relay/{mode}")
 async def relay(mode: str):
     if mode not in ("on", "off", "auto"):
@@ -210,9 +225,11 @@ async def sim(mode: str):
         s.forced = None
     elif mode == "auto":
         s.forced, s.auto = None, not s.auto
+    elif mode == "tone":
+        s.tone = not s.tone
     else:
         raise HTTPException(400)
-    return {"ok": True, "forced": s.forced, "auto": s.auto}
+    return {"ok": True, "forced": s.forced, "auto": s.auto, "tone": s.tone}
 
 
 LOGIN_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">

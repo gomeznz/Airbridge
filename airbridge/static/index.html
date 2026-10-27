@@ -96,6 +96,25 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#21262d;border:1px solid var(--line);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;max-width:90vw}
 .toast.on{opacity:1}
 .muted{color:var(--dim);font-size:13.5px}
+.alarms{display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.alarms .pill{font-size:12.5px;padding:4px 10px}
+.af2{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:560px){.af2{grid-template-columns:1fr 1fr}}
+.afm .top{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono)}
+.afm .top b{font-size:22px}
+.afm .sub2{display:flex;justify-content:space-between;font:12.5px var(--mono);color:var(--dim);margin-top:6px}
+.meter .pk{position:absolute;top:0;bottom:0;width:2px;background:#e6edf3;opacity:.7}
+.meter.tx .fill{background:linear-gradient(90deg,#5a3a99,var(--violet))}
+.meter .clipz{position:absolute;top:0;bottom:0;right:0;width:5%;background:rgba(248,81,73,.18)}
+.lamp.tx{background:radial-gradient(circle at 35% 30%,#ff8a80,#c0281f);border-color:#ff6b61;box-shadow:0 0 26px rgba(248,81,73,.5)}
+#specC{height:200px}
+.tone{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tone .tile:first-child{grid-column:1/-1}
+@media(min-width:560px){.tone .tile:first-child{grid-column:auto}}
+@media(min-width:560px){.tone{grid-template-columns:repeat(5,1fr)}}
+.tone .tile b{font-size:18px}
+.dir{font:600 11px var(--mono);letter-spacing:.04em;padding:2px 7px;border-radius:5px;margin-right:6px}
+.dir.rx{background:#2a2210;color:var(--amber)} .dir.tx{background:#241a38;color:var(--violet)}
 </style>
 </head>
 <body>
@@ -106,6 +125,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
   </div>
   <nav>
     <button data-tab="status" class="on">Status</button>
+    <button data-tab="audio">Audio</button>
     <button data-tab="recs">Recordings</button>
     <button data-tab="setup">Setup</button>
     <button data-tab="test">Test</button>
@@ -115,6 +135,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
 <main>
   <div class="banner sim" id="simBanner">Simulation mode: RSSI and audio are synthetic. Use the Test tab to key a fake carrier.</div>
   <div class="banner" id="errBanner"></div>
+  <div class="alarms" id="alarms"></div>
 
   <!-- STATUS -->
   <section id="status" class="on">
@@ -127,11 +148,11 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
             <div class="sub" id="carrierSub">detector idle</div>
           </div>
         </div>
-        <div class="tiles" style="margin-top:14px">
+        <div class="tiles" style="margin-top:14px;grid-template-columns:repeat(4,1fr)">
           <div class="tile"><b id="tOvers">0</b><span>overs today</span></div>
           <div class="tile"><b id="tSecs">0</b><span>seconds</span></div>
-          <div class="tile"><b id="tSent">0</b><span>forwarded</span></div>
-          <div class="tile"><b id="tFail">0</b><span>failed</span></div>
+          <div class="tile"><b id="tSent">0</b><span>to NXR</span></div>
+          <div class="tile"><b id="tTx">0</b><span>transmitted</span></div>
         </div>
       </div>
 
@@ -144,16 +165,22 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
       </div>
 
       <div class="card s4">
-        <h3>Relay output</h3>
-        <div class="hero"><div class="lamp" id="relayLamp" style="width:48px;height:48px"></div>
-          <div><div class="big" id="relayText" style="font-size:20px">OFF</div><div class="sub" id="relaySub">auto</div></div></div>
+        <h3>Transmit (NXR → A210)</h3>
+        <div class="hero"><div class="lamp" id="pttLamp" style="width:48px;height:48px"></div>
+          <div><div class="big" id="pttText" style="font-size:20px">RX</div><div class="sub" id="pttSub">idle</div></div></div>
+        <dl class="kv" style="margin-top:12px">
+          <dt>Receive buffer</dt><dd id="txBuf">–</dd>
+          <dt>Last burst</dt><dd id="txLast">–</dd>
+          <dt>K5TRA HID</dt><dd id="txHid">–</dd>
+        </dl>
+        <div class="row" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
       </div>
 
       <div class="card s4">
-        <h3>Audio in</h3>
-        <div class="readout"><b id="audDb">–</b><span class="muted">dBFS</span></div>
-        <div class="meter" id="audMeter"><div class="fill"></div></div>
-        <div class="legend"><span id="audDev"></span></div>
+        <h3>Relay output</h3>
+        <div class="hero"><div class="lamp" id="relayLamp" style="width:48px;height:48px"></div>
+          <div><div class="big" id="relayText" style="font-size:20px">OFF</div><div class="sub" id="relaySub">auto</div></div></div>
+        <div class="legend" style="margin-top:12px"><span id="audDev"></span></div>
       </div>
 
       <div class="card s4">
@@ -170,8 +197,60 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
       </div>
 
       <div class="card">
+        <h3>AF levels</h3>
+        <div class="af2">
+          <div class="afm"><div class="top"><span><span class="dir rx">RX</span>Airband in</span><b id="rxDb">–</b></div>
+            <div class="meter" id="rxMeter" style="margin-top:8px"><div class="fill"></div><div class="clipz"></div><div class="pk"></div></div>
+            <div class="sub2"><span id="rxDbm">–</span><span id="rxMv">–</span><span id="rxPk">–</span></div></div>
+          <div class="afm"><div class="top"><span><span class="dir tx">TX</span>To A210</span><b id="txDb">–</b></div>
+            <div class="meter tx" id="txMeter" style="margin-top:8px"><div class="fill"></div><div class="clipz"></div><div class="pk"></div></div>
+            <div class="sub2"><span id="txDbm">–</span><span id="txMv">–</span><span id="txPk">–</span></div></div>
+        </div>
+      </div>
+
+      <div class="card">
         <h3>Events</h3>
         <div class="log" id="log"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AUDIO -->
+  <section id="audio">
+    <div class="grid">
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Spectrum (0–4 kHz)</h3>
+          <div class="legend" style="margin:0"><span><i style="background:var(--amber)"></i>RX airband</span><span><i style="background:var(--violet)"></i>TX to A210</span></div></div>
+        <canvas id="specC"></canvas>
+        <div class="legend" style="justify-content:space-between"><span>0</span><span>1k</span><span>2k</span><span>3k</span><span>4 kHz</span></div>
+      </div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Tone analysis</h3>
+          <div class="row"><button class="btn sm on" id="toneRxBtn" onclick="toneDir='rx'">RX</button><button class="btn sm" id="toneTxBtn" onclick="toneDir='tx'">TX</button></div></div>
+        <p class="muted" id="toneHint" style="margin:8px 0 10px">Inject a tone into the A210, or key a TX test tone. Unweighted, 300–3400 Hz.</p>
+        <div class="tone">
+          <div class="tile"><b id="tnF">–</b><span>frequency</span></div>
+          <div class="tile"><b id="tnL">–</b><span>level dBFS</span></div>
+          <div class="tile"><b id="tnD">–</b><span>level dBm</span></div>
+          <div class="tile"><b id="tnS">–</b><span>SINAD dB</span></div>
+          <div class="tile"><b id="tnT">–</b><span>THD %</span></div>
+        </div>
+      </div>
+      <div class="card s6">
+        <h3>TX test tone</h3>
+        <p class="muted">Keys the A210 and sends a tone from the K5TRA, for setting the mic level. The busy-channel rule still applies.</p>
+        <div class="row"><input type="number" id="ttS" value="5" min="1" max="30" style="width:76px"><span class="muted">s</span>
+          <input type="number" id="ttF" value="1000" style="width:90px"><span class="muted">Hz</span>
+          <input type="number" id="ttL" value="-12" style="width:80px"><span class="muted">dBFS</span></div>
+        <div class="row" style="margin-top:10px"><button class="btn pri" onclick="post(`/api/test/tx?seconds=${ttS.value}&freq=${ttF.value}&level=${ttL.value}`)">Transmit tone</button>
+          <button class="btn dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
+      </div>
+      <div class="card s6">
+        <h3>Level calibration</h3>
+        <p class="muted">Feed a known level (e.g. −10 dBm, 600 Ω) into the K5TRA input and enter it. For the output, measure the K5TRA output with a meter during a TX test tone.</p>
+        <div class="row"><input type="number" id="calRx" value="-10" style="width:90px"><span class="muted">dBm in</span><button class="btn" onclick="calAf('rx')">Set RX</button></div>
+        <div class="row" style="margin-top:8px"><input type="number" id="calTx" value="-10" style="width:90px"><span class="muted">dBm out</span><button class="btn" onclick="calAf('tx')">Set TX</button></div>
+        <div class="muted" id="calAfInfo" style="margin-top:8px"></div>
       </div>
     </div>
   </section>
@@ -221,7 +300,7 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
       </div>
       <div class="card" id="simCard" style="display:none">
         <h3>Simulator</h3>
-        <div class="row"><button class="btn pri" onclick="post('/api/sim/on')">Carrier ON</button><button class="btn" onclick="post('/api/sim/off')">Carrier OFF</button><button class="btn" onclick="post('/api/sim/release')">Release</button><button class="btn" id="simAuto" onclick="post('/api/sim/auto')">Random traffic: off</button></div>
+        <div class="row"><button class="btn pri" onclick="post('/api/sim/on')">Carrier ON</button><button class="btn" onclick="post('/api/sim/off')">Carrier OFF</button><button class="btn" onclick="post('/api/sim/release')">Release</button><button class="btn" id="simAuto" onclick="post('/api/sim/auto')">Random traffic: off</button><button class="btn" id="simTone" onclick="post('/api/sim/tone')">RX test tone: off</button></div>
       </div>
     </div>
   </section>
@@ -281,14 +360,18 @@ function render(s){
   $('simBanner').style.display = s.simulate ? 'block' : 'none';
   $('simCard').style.display = s.simulate ? 'block' : 'none';
   $('simAuto').textContent = 'Random traffic: ' + (s.sim_auto ? 'on' : 'off');
+  $('simTone').textContent = 'RX test tone: ' + (s.sim_tone ? 'on' : 'off');
+  const al = $('alarms'); al.style.display = s.alarms.length ? 'flex' : 'none';
+  al.innerHTML = s.alarms.map(a => `<span class="pill r">⚠ ${ALARM[a]||a}</span>`).join('');
   const eb = $('errBanner'); eb.style.display = s.errors.length ? 'block' : 'none'; eb.textContent = s.errors.join(' · ');
 
   const lamp = $('lamp');
-  lamp.classList.toggle('on', s.detector==='active'); lamp.classList.toggle('hang', s.detector==='hang');
-  $('carrierText').textContent = s.detector==='active' ? 'Carrier' : s.detector==='hang' ? 'Carrier (hang)' : s.detector==='attack' ? 'Qualifying…' : 'No carrier';
-  $('carrierSub').textContent = s.over_s!=null ? `over #${s.over_id} · ${s.over_s.toFixed(1)} s` : 'detector ' + s.detector;
+  lamp.classList.toggle('on', s.detector==='active' && !s.guard); lamp.classList.toggle('hang', s.detector==='hang' && !s.guard);
+  lamp.classList.toggle('tx', s.tx.ptt);
+  $('carrierText').textContent = s.guard ? 'Transmitting' : s.detector==='active' ? 'Carrier' : s.detector==='hang' ? 'Carrier (hang)' : s.detector==='attack' ? 'Qualifying…' : 'No carrier';
+  $('carrierSub').textContent = s.guard ? (s.tx.ptt ? 'PTT keyed · RX muted' : 'RX guard after TX') : s.over_s!=null ? `over #${s.over_id} · ${s.over_s.toFixed(1)} s` : 'detector ' + s.detector;
   $('tOvers').textContent = s.today.overs; $('tSecs').textContent = Math.round(s.today.seconds);
-  $('tSent').textContent = s.today.sent; $('tFail').textContent = s.today.failed;
+  $('tSent').textContent = s.today.sent; $('tTx').textContent = s.today.transmitted;
 
   $('rssiV').textContent = s.rssi_v==null ? '–' : s.rssi_v.toFixed(3)+' V';
   $('rssiDbm').textContent = s.rssi_dbm==null ? '' : s.rssi_dbm.toFixed(1)+' dBm';
@@ -304,12 +387,18 @@ function render(s){
   $('relayText').textContent = s.relay ? 'ON' : 'OFF';
   $('relaySub').textContent = s.relay_override==null ? 'auto' : 'forced ' + (s.relay_override ? 'on':'off');
 
-  $('audDb').textContent = s.audio_db.toFixed(1);
-  $('audMeter').querySelector('.fill').style.width = Math.max(0, Math.min(100, (s.audio_db+60)/60*100))+'%';
-  $('audDev').textContent = s.audio_dev || '';
+  $('audDev').textContent = 'Audio: ' + (s.audio_dev || '–');
+  const t = s.tx, pl = $('pttLamp');
+  pl.classList.toggle('tx', t.ptt);
+  $('pttText').textContent = t.ptt ? 'TX' : (t.state==='dropping' ? 'DROP' : 'RX');
+  $('pttSub').textContent = !t.enabled ? 'TX disabled' : t.ptt ? `keyed ${t.keyed_s ?? 0} s` : t.state==='dropping' ? 'channel busy' : t.state;
+  $('txBuf').textContent = (t.buffer_ms + t.rx_buffer_ms) ? (t.buffer_ms + t.rx_buffer_ms)+' ms' : '–';
+  $('txLast').textContent = t.last || '–'; $('txHid').textContent = t.hid || 'not found';
+  afMeter('rx', s.af.rx); afMeter('tx', s.af.tx);
+  S_AF = s.af; if (document.getElementById('audio').classList.contains('on')) drawAudio();
 
   const sp = s.sip, st = $('sipState');
-  st.textContent = sp.enabled ? sp.state : 'disabled';
+  st.textContent = sp.enabled ? sp.state + (sp.direction==='in' && sp.state!=='idle' ? ' (inbound)' : '') : 'disabled';
   st.className = 'pill ' + ({connected:'g', calling:'a', trying:'a', ringing:'a', ending:'b', failed:'r'}[sp.state] || '');
   $('sipTarget').textContent = sp.target; $('sipCodec').textContent = sp.codec;
   $('sipUp').textContent = sp.connected_s!=null ? sp.connected_s.toFixed(1)+' s' : '–';
@@ -317,6 +406,54 @@ function render(s){
   const regShow = sp.registered !== null; $('regRow').style.display = $('sipReg').style.display = regShow ? '' : 'none';
   $('sipReg').innerHTML = sp.registered ? '<span class="pill g">yes</span>' : '<span class="pill r">no</span>';
   $('sipErr').textContent = sp.reg_error || (sp.last_error ? 'Last error: ' + sp.last_error : '');
+}
+
+const ALARM = {no_audio:'Carrier, no audio', rx_clip:'RX clipping', tx_clip:'TX clipping'};
+let S_AF = null, toneDir = 'rx';
+const dbPct = db => Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+function afMeter(d, m){
+  $(d+'Db').textContent = m.dbfs > -100 ? m.dbfs.toFixed(1) + ' dBFS' : '–';
+  const el = $(d+'Meter'); el.querySelector('.fill').style.width = dbPct(m.dbfs) + '%';
+  el.querySelector('.pk').style.left = dbPct(m.peak_dbfs) + '%';
+  $(d+'Dbm').textContent = m.dbfs > -100 ? m.dbm.toFixed(1) + ' dBm' : '– dBm';
+  $(d+'Mv').textContent = m.dbfs > -100 ? m.mv.toFixed(1) + ' mV' : '– mV';
+  $(d+'Pk').innerHTML = m.clips_1s ? '<span style="color:var(--red)">CLIP</span>' : 'pk ' + (m.peak_dbfs > -100 ? m.peak_dbfs.toFixed(1) : '–');
+}
+function drawAudio(){
+  const a = S_AF; if (!a) return;
+  const c = $('specC'), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w*dpr) { c.width = w*dpr; c.height = h*dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const y = db => h - (Math.max(-100, Math.min(0, db)) + 100) / 100 * (h - 6) - 3;
+  g.strokeStyle = '#21262d'; g.lineWidth = 1; g.font = '11px ui-monospace,monospace'; g.fillStyle = '#6e7681';
+  for (let db = -20; db > -100; db -= 20) { g.beginPath(); g.moveTo(0, y(db)); g.lineTo(w, y(db)); g.stroke(); g.fillText(db, 4, y(db) - 3); }
+  for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo(w*k/4, 0); g.lineTo(w*k/4, h); g.stroke(); }
+  [[a.spec_rx, '#e3a008', 'rgba(227,160,8,.12)'], [a.spec_tx, '#bc8cff', 'rgba(188,140,255,.12)']].forEach(([sp, col, fill]) => {
+    if (!sp || Math.max(...sp) <= -99) return;
+    g.beginPath(); sp.forEach((v, i) => { const x = (i + .5) / sp.length * w; i ? g.lineTo(x, y(v)) : g.moveTo(x, y(v)); });
+    g.strokeStyle = col; g.lineWidth = 1.6; g.stroke();
+    g.lineTo(w, h); g.lineTo(0, h); g.closePath(); g.fillStyle = fill; g.fill();
+  });
+  $('toneRxBtn').classList.toggle('pri', toneDir==='rx'); $('toneTxBtn').classList.toggle('pri', toneDir==='tx');
+  const t = toneDir === 'rx' ? a.tone_rx : a.tone_tx;
+  const ok = t && t.tone;
+  $('tnF').textContent = ok ? t.freq.toFixed(1) : '–';
+  $('tnF').style.color = ok && Math.abs(t.freq - a.tone_freq) > a.tone_freq * 0.02 ? 'var(--red)' : '';
+  $('tnL').textContent = ok ? t.level_dbfs.toFixed(1) : '–';
+  $('tnD').textContent = ok ? t.level_dbm.toFixed(1) : '–';
+  $('tnS').textContent = ok ? t.sinad_db.toFixed(1) : '–';
+  $('tnT').textContent = ok && t.thd_pct != null ? t.thd_pct.toFixed(2) : '–';
+  $('toneHint').textContent = ok ? `Tone detected (expected ${a.tone_freq} Hz). Unweighted, 300–3400 Hz.`
+    : (toneDir === 'tx' && !a.tx.active ? 'Not transmitting. Key a TX test tone below.' : 'No dominant tone. Inject one into the A210, or key a TX test tone.');
+}
+async function calAf(d){
+  if (!S_AF) return;
+  const m = S_AF[d]; if (m.dbfs < -80) return toast('No signal on ' + d.toUpperCase());
+  const known = parseFloat($(d==='rx' ? 'calRx' : 'calTx').value);
+  const c = await (await fetch('/api/config')).json();
+  c.af[d + '_cal_dbm'] = +(known - m.dbfs).toFixed(2);
+  const j = await post('/api/config', c);
+  if (j.ok) $('calAfInfo').textContent = `${d.toUpperCase()}: 0 dBFS = ${c.af[d+'_cal_dbm']} dBm saved.`;
 }
 
 function spark(){
@@ -336,15 +473,19 @@ function spark(){
 let recOff = 0; const REC_N = 25;
 $('prev').onclick = () => { recOff = Math.max(0, recOff-REC_N); loadRecs(); };
 $('next').onclick = () => { recOff += REC_N; loadRecs(); };
-const FWD = {sent:['g','forwarded'], failed:['r','failed'], skipped:['a','skipped'], disabled:['', 'not sent'], pending:['b','pending']};
+const FWD = {sent:['g','forwarded'], failed:['r','failed'], skipped:['a','skipped'], disabled:['', 'not sent'], pending:['b','pending'],
+  transmitted:['v','transmitted'], dropped:['r','dropped']};
 async function loadRecs(){
   const j = await (await fetch(`/api/recordings?limit=${REC_N}&offset=${recOff}`)).json();
   const L = $('recList'); L.innerHTML = j.items.length ? '' : '<p class="muted">No recordings yet.</p>';
   j.items.forEach(r => {
     const [cls, label] = FWD[r.forward] || ['', r.forward];
     const d = document.createElement('div'); d.className = 'rec';
-    d.innerHTML = `<div><div class="t">${fmtDT(r.started)}</div>
-      <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.peak_v!=null?' · peak '+r.peak_v.toFixed(2)+' V':''}</div></div>
+    const dir = r.direction === 'tx' ? '<span class="dir tx">NXR → AIR</span>' : '<span class="dir rx">AIR → NXR</span>';
+    const al = r.alarms ? JSON.parse(r.alarms) : [];
+    d.innerHTML = `<div><div class="t">${dir}${fmtDT(r.started)}</div>
+      <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.avg_dbfs!=null?' · avg '+r.avg_dbfs.toFixed(1)+' dBFS':''}${r.peak_v!=null?' · RSSI '+r.peak_v.toFixed(2)+' V':''}</div>
+      ${al.length ? `<div class="meta" style="color:var(--red)">⚠ ${al.join(' · ')}</div>` : ''}</div>
       <div style="text-align:right"><span class="pill ${cls}" title="${r.forward_detail||''}">${label}</span><br>
       <button class="btn sm dng" style="margin-top:6px">Delete</button></div>
       ${r.file ? `<audio controls preload="none" src="/api/recordings/${r.id}/audio"></audio>` : ''}`;
@@ -380,6 +521,7 @@ const SCHEMA = [
    ['invert','Inverted RSSI','bool','Tick if the voltage falls as signal rises.']]],
  ['cor','COR / squelch input',[
    ['enabled','Enabled','bool'],
+   ['backend','Source','select','gpio = a Pi pin; k5tra = the K5TRA COS input (CM119A HID)',['gpio','k5tra']],
    ['gpio','GPIO (BCM)','int'],
    ['active_low','Active low','bool'],
    ['pull_up','Internal pull-up','bool']]],
@@ -387,13 +529,40 @@ const SCHEMA = [
    ['enabled','Enabled','bool'],
    ['gpio','GPIO (BCM)','int'],
    ['active_high','Active high','bool'],
-   ['mode','Relay follows','select',null,['carrier','call','either']],
+   ['mode','Relay follows','select','either = carrier or call; any = carrier, call or PTT',['carrier','call','ptt','either','any']],
    ['hold_ms','Hold (ms)','int','Extra on-time after the condition ends.']]],
  ['audio','Audio input',[
    ['device','Device','device','Blank auto-detects the K5TRA / C-Media card.'],
    ['capture_rate','Capture rate (Hz)','select',null,[48000,16000,8000]],
    ['gain_db','Input gain (dB)','num'],
-   ['preroll_ms','Pre-roll (ms)','int','Audio kept from before the detector fires; also covers call setup. Must exceed attack time.']]],
+   ['preroll_ms','Pre-roll (ms)','int','Audio kept from before the detector fires; also covers call setup. Must exceed attack time.'],
+   ['tx_enabled','Use K5TRA output','bool','Full duplex: NXR audio plays out of the K5TRA into the A210.'],
+   ['out_gain_db','Output gain (dB)','num','Level into the A210 mic/line input.']]],
+ ['k5tra','K5TRA (CM119A)',[
+   ['hid_device','HID device','text','Blank auto-detects the first C-Media /dev/hidraw.'],
+   ['ptt_gpio','PTT GPIO','select','CM119A GPIO wired to the A210 PTT (3 on AllStar-style boards).',[1,2,3,4,5,6,7,8]],
+   ['ptt_invert','Invert PTT','bool'],
+   ['cos_bit','COS input bit','select','HID button bit carrying COS (1 = VOLDN).',[0,1,2,3]],
+   ['cos_invert','Invert COS','bool']]],
+ ['tx','Transmit (NXR → A210)',[
+   ['enabled','Enabled','bool','Key the A210 with audio received from the NXR. If the airband channel is busy, the audio is dropped.'],
+   ['vox_dbfs','VOX threshold (dBFS)','num','NXR audio above this keys the radio.'],
+   ['vox_hang_ms','VOX hang (ms)','int'],
+   ['ptt_lead_ms','PTT lead (ms)','int','Key-up time before audio starts.'],
+   ['ptt_tail_ms','PTT tail (ms)','int'],
+   ['jitter_ms','Jitter buffer (ms)','int'],
+   ['tot_s','TX time-out (s)','int'],
+   ['rx_guard_ms','RX guard after TX (ms)','int','RSSI/COR are ignored this long after unkeying, so the A210\'s own transmission never triggers the detector.'],
+   ['record','Record NXR bursts','bool']]],
+ ['af','AF analysis',[
+   ['rx_cal_dbm','RX: dBm at 0 dBFS','num','Set from the Audio tab with a known input level.'],
+   ['tx_cal_dbm','TX: dBm at 0 dBFS','num'],
+   ['low_dbfs','Low level alarm (dBFS)','num','Over average below this raises an alarm.'],
+   ['high_dbfs','High level alarm (dBFS)','num'],
+   ['clip_frames','Clipping alarm (frames)','int'],
+   ['no_audio_dbfs','No-audio threshold (dBFS)','num','Carrier present with audio below this ...'],
+   ['no_audio_s','No-audio time (s)','num','... for this long raises "carrier, no audio".'],
+   ['tone_freq','Expected test tone (Hz)','num']]],
  ['record','Recording',[
    ['enabled','Record overs','bool'],
    ['format','Format','select',null,['opus','mp3','wav']],
@@ -419,7 +588,11 @@ const SCHEMA = [
    ['forward_preroll_ms','Forwarded pre-roll (ms)','int','Audio from before the carrier was qualified that is sent on the call (attack time is added). Recordings keep the full pre-roll.'],
    ['max_call_s','Max call (s)','int'],
    ['cooldown_s','Cooldown between calls (s)','int'],
-   ['tx_gain_db','Send gain (dB)','num']]],
+   ['send_gain_db','Send gain (dB)','num','Airband audio level sent to the NXR.'],
+   ['reply_hold_s','Reply hold (s)','int','Keep an outbound call open this long after the last activity so NXR users can reply.'],
+   ['inbound_enabled','Accept calls from NXR','bool'],
+   ['inbound_allow','Extra allowed IPs','text','Comma list. The repeater IP is always allowed.'],
+   ['inbound_idle_s','Inbound idle hang-up (s)','int','0 leaves hang-up to the NXR.']]],
  ['web','Web',[
    ['port','Port','int','Takes effect after a service restart.'],
    ['password','Password','password','Blank disables login.']]],

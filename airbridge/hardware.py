@@ -56,6 +56,9 @@ class SimRadio:
         self._next_auto = time.time() + 10
         self.idle_v = 0.45
         self.carrier_v = 2.1
+        self.ptt = False            # mirrors the K5TRA PTT in simulation
+        self.tone = False           # inject a 1 kHz test tone on RX audio
+        self.tone_snr = 35.0
 
     def carrier(self):
         now = time.time()
@@ -69,7 +72,9 @@ class SimRadio:
         return False
 
     def rssi_v(self):
-        base = self.carrier_v if self.carrier() else self.idle_v
+        # worst case: the A210's RSSI line reads high while it transmits,
+        # which is exactly what the TX guard in the engine must ignore
+        base = self.carrier_v if (self.carrier() or self.ptt or self.tone) else self.idle_v
         return max(0.0, base + random.gauss(0, 0.03) + 0.05 * math.sin(time.time() * 3))
 
 
@@ -106,12 +111,15 @@ class RssiInput:
 
 
 class CorInput:
-    def __init__(self, cfg, simulate):
+    """COR/squelch input from a Pi GPIO or from the K5TRA's HID COS bit."""
+
+    def __init__(self, cfg, simulate, k5tra=None):
         self.cfg = cfg
         self.sim = simulate
         self.dev = None
         self.error = None
-        if cfg["enabled"] and not simulate:
+        self.k5tra = k5tra
+        if cfg["enabled"] and not simulate and cfg.get("backend", "gpio") == "gpio":
             try:
                 from gpiozero import DigitalInputDevice
                 self.dev = DigitalInputDevice(cfg["gpio"], pull_up=cfg["pull_up"])
@@ -123,7 +131,9 @@ class CorInput:
         if not self.cfg["enabled"]:
             return None
         if self.sim:
-            return SIM.carrier()
+            return SIM.carrier() or SIM.tone
+        if self.cfg.get("backend", "gpio") == "k5tra":
+            return self.k5tra.read_cos() if self.k5tra else None
         if not self.dev:
             return None
         level = bool(self.dev.value)

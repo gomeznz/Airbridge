@@ -19,7 +19,8 @@ import time
 import wave
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from airbridge.g711 import alaw_decode, ulaw_decode  # noqa: E402
+from airbridge.g711 import CODECS, alaw_decode, ulaw_decode  # noqa: E402
+import numpy as np  # noqa: E402
 
 EVENTS = "0123456789*#ABCD"
 
@@ -79,6 +80,30 @@ class Call:
                     print(f"[nxr] DTMF {EVENTS[ev]} (rfc2833)", flush=True)
         w.close()
 
+    def talk(self, dest, delay, secs, pt, freq=800.0):
+        """Send a burst of audio back to AirBridge (an NXR user replying)."""
+        def run():
+            time.sleep(delay)
+            enc = [v for v in CODECS.values() if v[0] == pt][0][1]
+            seq, ts, ssrc = random.randrange(65536), random.randrange(1 << 31), random.randrange(1 << 31)
+            t0 = time.monotonic()
+            n_tot = int(secs / 0.02)
+            print(f"[nxr] talking back {secs}s to {dest}", flush=True)
+            for n in range(n_tot + 25):                  # + 0.5 s of silence after
+                t = (np.arange(160) + n * 160) / 8000
+                if n < n_tot:
+                    x = 0.3 * (0.6 + 0.4 * np.sin(2 * np.pi * 2.5 * t)) * np.sin(2 * np.pi * freq * t)
+                else:
+                    x = np.zeros(160)
+                pkt = struct.pack("!BBHII", 0x80, pt, seq, ts, ssrc) + enc((x * 32767).astype(np.int16)).tobytes()
+                try:
+                    self.rtp.sendto(pkt, dest)
+                except OSError:
+                    return
+                seq, ts = (seq + 1) & 0xFFFF, (ts + 160) & 0xFFFFFFFF
+                time.sleep(max(0, t0 + (n + 1) * 0.02 - time.monotonic()))
+        threading.Thread(target=run, daemon=True).start()
+
     def stop(self):
         self.alive = False
         time.sleep(0.6)
@@ -93,6 +118,7 @@ def main():
     ap.add_argument("--codec", default="PCMU", choices=["PCMU", "PCMA"])
     ap.add_argument("--no-dtmf", action="store_true", help="omit telephone-event from SDP")
     ap.add_argument("--reject", type=int, default=0, help="reject INVITEs with this status")
+    ap.add_argument("--talkback", default="", help="DELAY,SECS: reply with audio after answering")
     args = ap.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -150,6 +176,10 @@ def main():
                    + ("" if args.no_dtmf else "a=rtpmap:101 telephone-event/8000\r\n"))
             calls[cid] = (c, sdp)
             reply(addr, h, 200, "OK", body=sdp)
+            if args.talkback:
+                mp = re.search(r"m=audio (\d+)", body)
+                d, secs = (float(v) for v in args.talkback.split(","))
+                c.talk((m.group(1), int(mp.group(1))), d, secs, pt)
         elif method == "ACK":
             pass
         elif method == "INFO":

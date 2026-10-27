@@ -29,6 +29,15 @@ CREATE TABLE IF NOT EXISTS overs (
 CREATE INDEX IF NOT EXISTS overs_started ON overs(started);
 """
 
+# columns added after the first release; added in place on older databases
+MIGRATIONS = {
+    "direction": "TEXT DEFAULT 'rx'",      # rx = airband -> NXR, tx = NXR -> airband
+    "avg_dbfs": "REAL",
+    "peak_dbfs": "REAL",
+    "clips": "INTEGER",
+    "alarms": "TEXT",
+}
+
 
 class Store:
     def __init__(self, data_dir):
@@ -38,15 +47,20 @@ class Store:
         self._lock = threading.Lock()
         with self._conn() as c:
             c.executescript(SCHEMA)
+            have = {r[1] for r in c.execute("PRAGMA table_info(overs)")}
+            for col, decl in MIGRATIONS.items():
+                if col not in have:
+                    c.execute(f"ALTER TABLE overs ADD COLUMN {col} {decl}")
 
     def _conn(self):
         c = sqlite3.connect(self.db_path, timeout=10)
         c.row_factory = sqlite3.Row
         return c
 
-    def new_over(self, started):
+    def new_over(self, started, direction="rx", forward="pending"):
         with self._lock, self._conn() as c:
-            cur = c.execute("INSERT INTO overs(started, forward) VALUES (?, 'pending')", (started,))
+            cur = c.execute("INSERT INTO overs(started, direction, forward) VALUES (?, ?, ?)",
+                            (started, direction, forward))
             return cur.lastrowid
 
     def update(self, oid, **kw):
@@ -84,10 +98,12 @@ class Store:
     def stats_today(self):
         start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         with self._conn() as c:
-            r = c.execute("SELECT COUNT(*), COALESCE(SUM(duration),0), "
-                          "SUM(forward='sent'), SUM(forward='failed') FROM overs WHERE started>=?",
+            r = c.execute("SELECT SUM(direction='rx'), COALESCE(SUM(CASE WHEN direction='rx' THEN duration END),0), "
+                          "SUM(forward='sent'), SUM(forward='failed'), SUM(forward='transmitted'), "
+                          "SUM(forward='dropped') FROM overs WHERE started>=?",
                           (start,)).fetchone()
-        return {"overs": r[0], "seconds": round(r[1] or 0, 1), "sent": r[2] or 0, "failed": r[3] or 0}
+        return {"overs": r[0] or 0, "seconds": round(r[1] or 0, 1), "sent": r[2] or 0, "failed": r[3] or 0,
+                "transmitted": r[4] or 0, "dropped": r[5] or 0}
 
     def purge(self, keep_days):
         if not keep_days or keep_days <= 0:

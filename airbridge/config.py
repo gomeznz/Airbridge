@@ -31,6 +31,7 @@ DEFAULTS = {
     },
     "cor": {
         "enabled": False,           # squelch/COR line from the radio
+        "backend": "gpio",          # gpio (Pi pin) | k5tra (CM119A HID COS bit)
         "gpio": 17,
         "active_low": True,
         "pull_up": True,
@@ -54,6 +55,36 @@ DEFAULTS = {
         "capture_rate": 48000,
         "gain_db": 0.0,
         "preroll_ms": 2000,         # audio kept from before carrier detect
+        "tx_enabled": True,         # use the K5TRA output (NXR audio -> A210)
+        "out_gain_db": 0.0,         # K5TRA output level into the A210
+    },
+    "k5tra": {
+        "hid_device": "",           # blank = first C-Media /dev/hidraw*
+        "ptt_gpio": 3,              # CM119A GPIO used for PTT (AllStar convention: 3)
+        "ptt_invert": False,
+        "cos_bit": 1,               # HID input bit for COS (VOLDN = 1)
+        "cos_invert": False,
+    },
+    "tx": {
+        "enabled": True,            # key the A210 with audio from the NXR
+        "vox_dbfs": -40.0,          # NXR audio above this keys the radio
+        "vox_hang_ms": 800,         # keep keyed this long after NXR audio stops
+        "ptt_lead_ms": 150,         # key-up before audio starts
+        "ptt_tail_ms": 100,         # hold after the last audio
+        "jitter_ms": 60,            # receive buffer before playout starts
+        "tot_s": 60,                # transmit time-out
+        "rx_guard_ms": 600,         # ignore RSSI/COR this long after unkeying
+        "record": True,             # record NXR -> airband bursts too
+    },
+    "af": {
+        "rx_cal_dbm": 0.0,          # dBm (600 ohm) that 0 dBFS represents on K5TRA input
+        "tx_cal_dbm": 0.0,          # dBm (600 ohm) that 0 dBFS represents on K5TRA output
+        "low_dbfs": -30.0,          # over average below this -> 'level low' alarm
+        "high_dbfs": -6.0,          # over average above this -> 'level high' alarm
+        "clip_frames": 5,           # clipped frames per over before a clipping alarm
+        "no_audio_dbfs": -50.0,     # carrier present but audio below this ...
+        "no_audio_s": 3.0,          # ... for this long -> 'carrier, no audio' alarm
+        "tone_freq": 1000.0,        # expected test-tone frequency
     },
     "record": {
         "enabled": True,
@@ -79,10 +110,13 @@ DEFAULTS = {
         "dtmf_delay_ms": 500,
         "post_answer_delay_ms": 300,     # wait before streaming audio
         "forward_preroll_ms": 600,       # pre-roll sent on the call (recording keeps full pre-roll)
-        "max_call_s": 180,
+        "max_call_s": 600,
         "cooldown_s": 0,                 # minimum gap between calls
-        "keep_call_while_hang": True,    # new carrier during hang reuses call
-        "tx_gain_db": 0.0,
+        "send_gain_db": 0.0,             # airband audio level sent to the NXR
+        "reply_hold_s": 10,              # keep an outbound call up this long for replies
+        "inbound_enabled": True,         # accept calls from the NXR
+        "inbound_allow": "",             # extra allowed source IPs (comma list); target_host always allowed
+        "inbound_idle_s": 120,           # hang up an inbound call idle this long (0 = never)
     },
     "web": {
         "host": "0.0.0.0",

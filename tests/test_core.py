@@ -68,3 +68,67 @@ def test_g711_roundtrip():
         y = dec(enc(x).tobytes()).astype(float)
         snr = 10 * np.log10(np.mean(x.astype(float) ** 2) / np.mean((y - x) ** 2))
         assert snr > 30
+
+
+# ---------- TX controller ----------
+from airbridge.tx import TxController  # noqa: E402
+
+TXCFG = {"enabled": True, "vox_dbfs": -40.0, "vox_hang_ms": 200, "ptt_lead_ms": 40, "ptt_tail_ms": 40,
+         "jitter_ms": 40, "tot_s": 60, "rx_guard_ms": 300, "record": False}
+
+
+class _Hooks:
+    def __init__(self):
+        self.ends = []
+    def burst_start(self, kind): pass
+    def burst_frame(self, f): pass
+    def burst_end(self, result, detail, res): self.ends.append(result)
+    def event(self, k, t): pass
+
+
+class _Ptt:
+    def __init__(self): self.log = []
+    def set_ptt(self, on): self.log.append(on)
+
+
+def _run_tx(busy, n_voice=50, n_silence=60, monkey=None):
+    import airbridge.tx as txm
+    clock = [1000.0]
+    txm.time.time = lambda: clock[0]
+    tone = (np.sin(np.arange(160) / 8000 * 2 * np.pi * 800) * 10000).astype(np.int16)
+    feed = [tone] * n_voice + [np.zeros(160, np.int16)] * n_silence   # far end keeps sending silence
+    src = iter(feed)
+    hooks, ptt = _Hooks(), _Ptt()
+    tx = TxController(TXCFG, ptt, lambda: [next(src)] if True else [], lambda: busy, hooks)
+    played = 0
+    for _ in range(len(feed) - 1):
+        out = tx.pull()
+        played += int(np.any(out))
+        clock[0] += 0.02
+    return tx, hooks, ptt, played
+
+
+def test_tx_keys_and_releases_despite_streamed_silence():
+    import time as _t
+    real = _t.time
+    try:
+        tx, hooks, ptt, played = _run_tx(busy=False)
+    finally:
+        import airbridge.tx as txm
+        txm.time.time = real
+    assert ptt.log == [True, False]
+    assert hooks.ends == ["transmitted"]
+    assert played >= 45
+
+
+def test_tx_dropped_when_channel_busy():
+    import time as _t
+    real = _t.time
+    try:
+        tx, hooks, ptt, played = _run_tx(busy=True)
+    finally:
+        import airbridge.tx as txm
+        txm.time.time = real
+    assert ptt.log == []
+    assert hooks.ends == ["dropped"]
+    assert played == 0

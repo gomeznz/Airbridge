@@ -15,6 +15,12 @@ apt-get install -y -qq python3-venv python3-pip python3-lgpio libportaudio2 ffmp
 echo "==> enable I2C"
 if command -v raspi-config >/dev/null; then raspi-config nonint do_i2c 0 || true; fi
 
+echo "==> K5TRA HID access (PTT/COS) for the audio group"
+cat > /etc/udev/rules.d/90-airbridge-cm119.rules <<'RULE'
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0d8c", GROUP="audio", MODE="0660"
+RULE
+udevadm control --reload-rules && udevadm trigger --subsystem-match=hidraw || true
+
 echo "==> user and folders"
 id -u $SVC_USER >/dev/null 2>&1 || useradd --system --home $DATA --shell /usr/sbin/nologin $SVC_USER
 for g in audio gpio i2c; do getent group $g >/dev/null && usermod -aG $g $SVC_USER; done
