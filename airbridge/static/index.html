@@ -157,10 +157,16 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
       </div>
 
       <div class="card s6">
-        <h3>RSSI</h3>
+        <h3>Carrier detection</h3>
+        <div class="row" id="srcChips" style="margin-bottom:10px"></div>
         <div class="readout"><b id="rssiV">–</b><span id="rssiDbm" class="muted"></span></div>
         <div class="meter" id="rssiMeter"><div class="fill"></div><div class="mark on"></div><div class="mark off"></div></div>
-        <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="onV"></span></span><span><i style="background:var(--blue)"></i>off <span id="offV"></span></span><span>COR <span id="cor">–</span></span></div>
+        <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="onV"></span></span><span><i style="background:var(--blue)"></i>off <span id="offV"></span></span></div>
+        <div id="afBlock" style="margin-top:14px">
+          <div class="readout"><span id="afLabel" class="muted">AF noise</span><b id="afV" style="font-size:18px">–</b></div>
+          <div class="meter" id="afMeter"><div class="fill"></div><div class="mark on"></div><div class="mark off"></div></div>
+          <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="afOn"></span></span><span><i style="background:var(--blue)"></i>off <span id="afOff"></span></span><span id="afHint"></span></div>
+        </div>
         <canvas id="spark"></canvas>
       </div>
 
@@ -286,10 +292,10 @@ input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top
         <div class="row"><button class="btn" onclick="post('/api/relay/on')">Force ON</button><button class="btn" onclick="post('/api/relay/off')">Force OFF</button><button class="btn pri" onclick="post('/api/relay/auto')">Auto</button></div>
       </div>
       <div class="card s6">
-        <h3>Thresholds from live RSSI</h3>
-        <p class="muted">With no signal, capture the noise floor. Then key a weak test carrier and capture it. The on threshold is set just below the carrier, the off threshold just above the floor.</p>
+        <h3>Thresholds from live readings</h3>
+        <p class="muted">With no signal, capture the floor. Then key a weak test carrier and capture it. RSSI and AF thresholds are both set between the two, with hysteresis.</p>
         <div class="row"><button class="btn" onclick="cap('floor')">Capture floor</button><button class="btn" onclick="cap('sig')">Capture weak carrier</button><button class="btn pri" onclick="applyThresh()">Apply</button></div>
-        <dl class="kv" style="margin-top:10px"><dt>Floor</dt><dd id="capFloor">–</dd><dt>Carrier</dt><dd id="capSig">–</dd><dt>Proposed on / off</dt><dd id="capProp">–</dd></dl>
+        <dl class="kv" style="margin-top:10px"><dt>Floor</dt><dd id="capFloor">–</dd><dt>Carrier</dt><dd id="capSig">–</dd><dt>Proposed RSSI on / off</dt><dd id="capProp">–</dd><dt>Proposed AF on / off</dt><dd id="capPropAf">–</dd></dl>
       </div>
       <div class="card s6">
         <h3>dBm calibration</h3>
@@ -380,7 +386,22 @@ function render(s){
   m.querySelector('.mark.on').style.left = pct(s.on_v)+'%';
   m.querySelector('.mark.off').style.left = pct(s.off_v)+'%';
   $('onV').textContent = (+s.on_v).toFixed(2)+' V'; $('offV').textContent = (+s.off_v).toFixed(2)+' V';
-  $('cor').textContent = s.cor==null ? 'n/a' : (s.cor ? 'open' : 'closed');
+  const dt = s.detect, used = dt.sources;
+  const chip = (k, label, val) => `<span class="pill ${val ? 'a' : ''}" style="${used.includes(k) ? '' : 'opacity:.4'}">${label} ${val==null ? '–' : val ? '●' : '○'}</span>`;
+  $('srcChips').innerHTML = chip('rssi','RSSI',dt.rssi) + chip('cor','COR',dt.cor) + chip('af','AF',dt.af)
+    + `<span class="muted" style="margin-left:4px">${used.length > 1 ? (dt.combine==='all' ? 'all must agree' : 'any one triggers') : ''}</span>`;
+  const afb = $('afBlock'); afb.style.display = used.includes('af') ? '' : 'none';
+  if (used.includes('af')) {
+    const noise = dt.af_mode === 'noise', ap = v => Math.max(0, Math.min(100, (v + 90) / 90 * 100));
+    $('afLabel').textContent = noise ? 'AF noise (HF band)' : 'AF level';
+    $('afV').textContent = dt.af_value==null ? '–' : dt.af_value.toFixed(1) + ' dBFS';
+    const am = $('afMeter'); am.classList.toggle('carrier', dt.af);
+    am.querySelector('.fill').style.width = ap(dt.af_value ?? -90) + '%';
+    am.querySelector('.mark.on').style.left = ap(dt.af_on) + '%'; am.querySelector('.mark.off').style.left = ap(dt.af_off) + '%';
+    $('afOn').textContent = (noise ? '≤ ' : '≥ ') + dt.af_on; $('afOff').textContent = (noise ? '≥ ' : '≤ ') + dt.af_off;
+    $('afHint').textContent = noise ? 'carrier quiets the noise' : '';
+  }
+  $('rssiMeter').style.display = $('rssiV').parentElement.style.display = used.includes('rssi') || s.rssi_v != null ? '' : 'none';
   hist.push([s.rssi_v, s.carrier]); if (hist.length > 300) hist.shift(); spark();
 
   $('relayLamp').classList.toggle('on', s.relay);
@@ -504,11 +525,21 @@ const SCHEMA = [
    ['site_name','Site name','text'],
    ['simulate','Simulation mode','bool','Run without hardware: synthetic RSSI and audio.']]],
  ['detect','Carrier detection',[
-   ['source','Trigger source','select',null,['rssi','cor','either','both']],
+   ['sources','Trigger sources','multi','Any mix of RSSI (ADS1115), COR (K5TRA or Pi pin) and AF (the receiver audio itself).',['rssi','cor','af']],
+   ['combine','Combine sources','select','any = whichever fires first; all = every selected source must agree.',['any','all']],
    ['on_threshold_v','On threshold (V)','num','RSSI at or above this opens the detector.'],
    ['off_threshold_v','Off threshold (V)','num','RSSI at or below this closes it. Keep below the on threshold for hysteresis.'],
    ['attack_ms','Attack (ms)','int','Carrier must hold this long before it counts. Filters clicks and blips.'],
    ['hang_ms','Hang (ms)','int','Carrier must be gone this long before the over ends.']]],
+ ['afdetect','AF carrier detection',[
+   ['mode','Mode','select','noise: leave the A210 squelch open; a carrier quiets the receiver noise above the voice band (catches dead carriers too). level: A210 squelch set; any audio = carrier.',['noise','level']],
+   ['smoothing','Smoothing (frames)','int','20 ms frames.'],
+   ['noise_lo_hz','Noise band low (Hz)','int','Measured on the raw 48 kHz capture. Check the A210 line-out passes it.'],
+   ['noise_hi_hz','Noise band high (Hz)','int'],
+   ['noise_on_dbfs','Noise mode: carrier below (dBFS)','num'],
+   ['noise_off_dbfs','Noise mode: clear above (dBFS)','num'],
+   ['level_on_dbfs','Level mode: carrier above (dBFS)','num'],
+   ['level_off_dbfs','Level mode: clear below (dBFS)','num']]],
  ['rssi','RSSI input (ADS1115)',[
    ['enabled','Enabled','bool'],
    ['i2c_bus','I²C bus','int'],
@@ -519,9 +550,9 @@ const SCHEMA = [
    ['sample_hz','Sample rate (Hz)','int'],
    ['smoothing','Smoothing (samples)','int'],
    ['invert','Inverted RSSI','bool','Tick if the voltage falls as signal rises.']]],
- ['cor','COR / squelch input',[
+ ['cor','COR input',[
    ['enabled','Enabled','bool'],
-   ['backend','Source','select','gpio = a Pi pin; k5tra = the K5TRA COS input (CM119A HID)',['gpio','k5tra']],
+   ['backend','Source','select','k5tra = the K5TRA COR input; gpio = a Pi pin',['k5tra','gpio']],
    ['gpio','GPIO (BCM)','int'],
    ['active_low','Active low','bool'],
    ['pull_up','Internal pull-up','bool']]],
@@ -609,6 +640,7 @@ async function loadCfg(){
       const v = CFG[sec][k], id = `f_${sec}_${k}`;
       let inp;
       if (type==='bool') inp = `<input type=checkbox id=${id} ${v?'checked':''}>`;
+      else if (type==='multi') inp = `<div class=row id=${id}>${opts.map(o=>`<label style="display:flex;gap:6px;align-items:center;padding:0"><input type=checkbox value="${o}" ${(v||[]).includes(o)?'checked':''} style="margin:0">${o.toUpperCase()}</label>`).join('')}</div>`;
       else if (type==='select') inp = `<select id=${id}>${opts.map(o=>`<option ${String(o)===String(v)?'selected':''}>${o}</option>`).join('')}</select>`;
       else if (type==='device') inp = `<select id=${id}><option value="">(auto)</option>${devices.map(d=>`<option value="${d.name.replace(/"/g,'&quot;')}" ${d.name===v?'selected':''}>${d.name}</option>`).join('')}</select>`;
       else inp = `<input type=${type==='password'?'password':(type==='text'||type==='hex'?'text':'number')} ${type==='num'?'step=any':''} id=${id}>`;
@@ -626,6 +658,7 @@ function readCfg(){
   SCHEMA.forEach(([sec,,fields]) => fields.forEach(([k,,type,,opts]) => {
     const el = $(`f_${sec}_${k}`); let v;
     if (type==='bool') v = el.checked;
+    else if (type==='multi') v = [...el.querySelectorAll('input:checked')].map(x=>x.value);
     else if (type==='int') v = parseInt(el.value,10);
     else if (type==='num') v = parseFloat(el.value);
     else if (type==='hex') v = parseInt(el.value,16);
@@ -638,6 +671,9 @@ function readCfg(){
 $('saveBtn').onclick = async () => {
   const c = readCfg();
   if (c.detect.off_threshold_v >= c.detect.on_threshold_v) { toast('Off threshold must be below on threshold'); return; }
+  if (!c.detect.sources.length) { toast('Pick at least one trigger source'); return; }
+  if (c.afdetect.noise_on_dbfs >= c.afdetect.noise_off_dbfs) { toast('AF noise: carrier level must be below the clear level'); return; }
+  if (c.afdetect.level_off_dbfs >= c.afdetect.level_on_dbfs) { toast('AF level: off must be below on'); return; }
   $('saveBtn').disabled = true;
   const j = await post('/api/config', c);
   $('saveBtn').disabled = false;
@@ -645,18 +681,34 @@ $('saveBtn').onclick = async () => {
 };
 
 // ---------- test helpers ----------
-let capF = null, capS = null;
-function cap(which){ if (!S || S.rssi_v==null) return toast('No RSSI reading');
-  if (which==='floor') capF = S.rssi_v; else capS = S.rssi_v;
-  $('capFloor').textContent = capF==null?'–':capF.toFixed(3)+' V';
-  $('capSig').textContent = capS==null?'–':capS.toFixed(3)+' V';
+let capF = null, capS = null, capFa = null, capSa = null;
+function afProp(){
+  if (capFa==null || capSa==null || !S) return null;
+  const span = capSa - capFa;                      // noise mode: negative (carrier quiets)
+  if (Math.abs(span) < 6) return null;
+  return {on: +(capFa + span*0.7).toFixed(1), off: +(capFa + span*0.3).toFixed(1)};
+}
+function cap(which){
+  if (!S) return;
+  const v = S.rssi_v, a = S.detect.af_value;
+  if (v==null && a==null) return toast('No RSSI or AF reading');
+  if (which==='floor') { capF = v; capFa = a; } else { capS = v; capSa = a; }
+  $('capFloor').textContent = [capF!=null?capF.toFixed(3)+' V':null, capFa!=null?capFa.toFixed(1)+' dBFS':null].filter(Boolean).join(' · ') || '–';
+  $('capSig').textContent = [capS!=null?capS.toFixed(3)+' V':null, capSa!=null?capSa.toFixed(1)+' dBFS':null].filter(Boolean).join(' · ') || '–';
   if (capF!=null && capS!=null) { const span = capS-capF;
-    $('capProp').textContent = span>0.05 ? `${(capF+span*0.7).toFixed(2)} / ${(capF+span*0.3).toFixed(2)} V` : 'carrier too close to floor'; } }
+    $('capProp').textContent = span>0.05 ? `${(capF+span*0.7).toFixed(2)} / ${(capF+span*0.3).toFixed(2)} V` : 'carrier too close to floor'; }
+  if (capFa!=null && capSa!=null) { const p = afProp();
+    $('capPropAf').textContent = p ? `${p.on} / ${p.off} dBFS (${S.detect.af_mode})` : 'less than 6 dB apart'; }
+}
 async function applyThresh(){
-  if (capF==null||capS==null||capS-capF<=0.05) return toast('Capture floor and carrier first');
-  const c = await (await fetch('/api/config')).json(), span = capS-capF;
-  c.detect.on_threshold_v = +(capF+span*0.7).toFixed(3); c.detect.off_threshold_v = +(capF+span*0.3).toFixed(3);
-  const j = await post('/api/config', c); if (j.ok) toast('Thresholds applied');
+  const c = await (await fetch('/api/config')).json(); let did = [];
+  if (capF!=null && capS!=null && capS-capF>0.05) { const span = capS-capF;
+    c.detect.on_threshold_v = +(capF+span*0.7).toFixed(3); c.detect.off_threshold_v = +(capF+span*0.3).toFixed(3); did.push('RSSI'); }
+  const p = afProp();
+  if (p) { const k = S.detect.af_mode === 'noise' ? 'noise' : 'level';
+    c.afdetect[k+'_on_dbfs'] = p.on; c.afdetect[k+'_off_dbfs'] = p.off; did.push('AF'); }
+  if (!did.length) return toast('Capture floor and carrier first');
+  const j = await post('/api/config', c); if (j.ok) toast(did.join(' + ') + ' thresholds applied');
 }
 async function calCap(n){
   if (!S || S.rssi_v==null) return toast('No RSSI reading');

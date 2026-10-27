@@ -18,7 +18,7 @@ from collections import deque
 
 from . import afmeter, hardware
 from .audio import AudioSource, tone_frames
-from .detector import ACTIVE, ATTACK, CarrierDetector, volts_to_dbm
+from .detector import ACTIVE, ATTACK, AfDetector, CarrierDetector, sources_of, volts_to_dbm
 from .k5tra import K5tra
 from .recorder import OverRecording, Store
 from .sip import SipUA
@@ -52,6 +52,7 @@ class Engine:
         self.cor_in = hardware.CorInput(c["cor"], sim, self.k5)
         self.relay = hardware.Relay(c["relay"], sim)
         self.det = CarrierDetector(c["detect"], c["rssi"])
+        self.af_det = AfDetector(c["afdetect"])
         self.rx_meter = afmeter.LevelMeter(c["af"]["rx_cal_dbm"])
         self.tx_meter = afmeter.LevelMeter(c["af"]["tx_cal_dbm"])
         self.preroll = deque(maxlen=max(1, int(c["audio"]["preroll_ms"]) // 20))
@@ -83,7 +84,8 @@ class Engine:
                 self.ua = None
 
         self.tx = TxController(c["tx"], _PttTap(self.k5, sim), self._tx_source, self._channel_busy, self)
-        self.audio = AudioSource(c["audio"], sim, self.on_frame, self._pull_tx)
+        self.audio = AudioSource(c["audio"], sim, self.on_frame, self._pull_tx,
+                                 hf_band=(float(c["afdetect"]["noise_lo_hz"]), float(c["afdetect"]["noise_hi_hz"])))
         self.audio.start()
         self._running = True
         self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -95,6 +97,8 @@ class Engine:
 
     def _hw_errors(self):
         errs = [self.rssi_in.error, self.cor_in.error, self.relay.error, self.audio.error]
+        if "af" in sources_of(self.config["detect"]):
+            errs.append(self.af_det.error)
         if self.config["tx"]["enabled"]:
             errs.append(self.k5.error)
         return [e for e in errs if e]
@@ -141,7 +145,9 @@ class Engine:
         now = time.time()
         self.rx_meter.feed(frame, now)
         if self.tx.guard_active(now):
-            return                        # own transmission: never record or forward it
+            self.af_det.reset()
+            return
+        self.af_det.update(self.rx_meter.rms, self.audio.hf_db)                        # own transmission: never record or forward it
         with self._lock:
             self.preroll.append(frame)
             if self.over is None:
@@ -228,7 +234,7 @@ class Engine:
                 if self.tx.guard_active(now):
                     pass        # A210 transmitting (or just stopped): RSSI/COR are meaningless
                 else:
-                    ev = self.det.update(v, cor, now)
+                    ev = self.det.update(v, cor, now, self.af_det.latched)
                     if ev == "start":
                         self._start_over(self.det.over_start)
                     elif ev == "end":
@@ -528,6 +534,18 @@ class Engine:
             "off_v": c["detect"]["off_threshold_v"],
             "cor": d.cor,
             "detector": d.state,
+            "detect": {
+                "sources": sources_of(c["detect"]),
+                "combine": c["detect"].get("combine", "any"),
+                "rssi": d.rssi_latched if d.rssi is not None else None,
+                "cor": d.cor,
+                "af": self.af_det.latched,
+                "af_mode": c["afdetect"]["mode"],
+                "af_value": None if self.af_det.value is None else round(self.af_det.value, 1),
+                "af_on": c["afdetect"]["noise_on_dbfs" if c["afdetect"]["mode"] == "noise" else "level_on_dbfs"],
+                "af_off": c["afdetect"]["noise_off_dbfs" if c["afdetect"]["mode"] == "noise" else "level_off_dbfs"],
+                "hf_dbfs": None if self.audio.hf_db is None else round(self.audio.hf_db, 1),
+            },
             "carrier": d.carrier,
             "guard": self.tx.guard_active(now),
             "over_s": round(now - over["started"], 1) if over else None,

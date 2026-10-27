@@ -26,8 +26,10 @@ def _lowpass(num_taps, cutoff, fs):
 
 
 class AudioSource:
-    def __init__(self, cfg, simulate, on_frame, pull_tx=None):
+    def __init__(self, cfg, simulate, on_frame, pull_tx=None, hf_band=(4000, 7000)):
         self.cfg = cfg
+        self.hf_band = hf_band
+        self.hf_db = None            # noise level above the voice band (raw capture), dBFS
         self.sim = simulate
         self.on_frame = on_frame
         self.pull_tx = pull_tx or (lambda: None)
@@ -94,7 +96,22 @@ class AudioSource:
             log.error(self.error)
 
     # ---------- callbacks ----------
+    def _hf_noise(self, x):
+        """RMS level (dBFS) of the raw capture between hf_band[0] and hf_band[1]."""
+        n = len(x)
+        rate = self._ratio * RATE
+        lo, hi = self.hf_band
+        if hi >= rate / 2 or n < 64:
+            return None
+        w = self._win if getattr(self, "_win", None) is not None and len(self._win) == n else np.hanning(n)
+        self._win = w
+        X = np.fft.rfft(x * w)
+        k0, k1 = int(lo * n / rate), int(hi * n / rate)
+        ms = 2.0 * float(np.sum(np.abs(X[k0:k1]) ** 2)) / (n * float(np.sum(w * w)))
+        return 10 * np.log10(max(ms, 1e-12))
+
     def _rx(self, x):
+        self.hf_db = self._hf_noise(x)
         buf = np.concatenate([self._hist_in, x])
         y = np.convolve(buf, self._taps, mode="valid")
         self._hist_in = buf[-(len(self._taps) - 1):]
@@ -150,6 +167,13 @@ class AudioSource:
         n = 0
         while not self._stop.is_set():
             t = (np.arange(FRAME) + n * FRAME) / RATE
+            # HF receiver noise: high with squelch open and no signal, quieted by a carrier
+            if SIM.ptt:
+                self.hf_db = -90.0
+            elif SIM.carrier() or SIM.tone:
+                self.hf_db = -70.0 + float(np.random.normal(0, 1.5))
+            else:
+                self.hf_db = -45.0 + float(np.random.normal(0, 1.5))
             if SIM.ptt:
                 sig = np.zeros(FRAME)                       # receiver muted while transmitting
             elif SIM.tone:

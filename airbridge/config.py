@@ -31,17 +31,28 @@ DEFAULTS = {
     },
     "cor": {
         "enabled": False,           # squelch/COR line from the radio
-        "backend": "gpio",          # gpio (Pi pin) | k5tra (CM119A HID COS bit)
+        "backend": "k5tra",         # k5tra (K5TRA COR input via CM119A HID) | gpio (Pi pin)
         "gpio": 17,
         "active_low": True,
         "pull_up": True,
     },
     "detect": {
-        "source": "rssi",           # rssi | cor | either | both
+        "sources": ["rssi"],        # any of: rssi, cor, af
+        "combine": "any",           # any = OR of the sources, all = AND
         "on_threshold_v": 1.20,
         "off_threshold_v": 1.00,
         "attack_ms": 300,           # must stay above on-threshold this long (filters blips)
         "hang_ms": 2500,            # carrier must stay off this long to end an over
+    },
+    "afdetect": {
+        "mode": "noise",            # noise (A210 squelch open) | level (A210 squelch set)
+        "smoothing": 5,             # frames (20 ms each)
+        "level_on_dbfs": -35.0,     # level mode: audio above this = carrier
+        "level_off_dbfs": -42.0,
+        "noise_lo_hz": 4000,        # noise mode: band measured on the raw capture
+        "noise_hi_hz": 7000,
+        "noise_on_dbfs": -60.0,     # noise mode: band noise BELOW this = carrier (quieted)
+        "noise_off_dbfs": -52.0,
     },
     "relay": {
         "enabled": True,
@@ -146,7 +157,13 @@ class Config:
     def load(self):
         if os.path.exists(self.path):
             with open(self.path) as f:
-                self.data = _merge(DEFAULTS, json.load(f))
+                raw = json.load(f)
+            det = raw.get("detect", {})
+            if "source" in det and "sources" not in det:      # pre-AF-detect config
+                from .detector import LEGACY_SOURCE
+                det["sources"], det["combine"] = LEGACY_SOURCE.get(det.pop("source"), (["rssi"], "any"))
+            det.pop("source", None)
+            self.data = _merge(DEFAULTS, raw)
         return self.data
 
     def save(self, new):

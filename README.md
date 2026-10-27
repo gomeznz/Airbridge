@@ -4,7 +4,7 @@ Two-way bridge between an Icom IC-A210 airband radio and a Kenwood NXR-1800 repe
 
 When the A210 receives a carrier, AirBridge:
 
-1. Detects it from the RSSI voltage (ADS1115 ADC), a COR/squelch line, or both.
+1. Detects it from any mix of three sources: the RSSI voltage (ADS1115 ADC), the COR line (K5TRA COR input), and the receiver audio itself (AF detection).
 2. Operates a relay output.
 3. Records the over, including pre-roll, compressed to Opus.
 4. Places a SIP call **directly to the Kenwood NXR-1800's built-in SIP interface**, with no PBX or Asterisk. It sends any DTMF the NXR needs and streams the audio as G.711. The call stays open for a reply window, then hangs up.
@@ -41,7 +41,9 @@ IC-A210 ──RSSI──► ADS1115 ──I²C──┐
 | ADS1115 module | VDD 3.3 V, GND, SDA→GPIO2 (pin 3), SCL→GPIO3 (pin 5), ADDR→GND (0x48) |
 | K5TRA 1.1 (CM119A) | RX: A210 line/speaker out → K5TRA input. TX: K5TRA output → A210 mic/line in. PTT: CM119A GPIO (default GPIO3) → A210 PTT. COS (optional): A210 squelch → K5TRA COS input |
 | Relay module | Opto-isolated, driven from GPIO27 (pin 13). Use an interposing relay for anything serious. |
-| COR (optional) | Squelch-open line to GPIO17 (pin 11). Opto-isolate it if it isn't a clean 0–3.3 V signal. |
+| COR (optional) | Into the K5TRA COR input. A Pi GPIO (GPIO17, pin 11) is available as an alternative. |
+
+The K5TRA's PL-detect input is not used: CTCSS isn't used in aviation.
 
 **RSSI input protection.** The ADS1115 inputs must stay within its supply rail (3.3 V). If the A210's RSSI can exceed that, use a divider and set *Divider ratio* in Setup to match (2.0 for 10k/10k). Fit a 1k series resistor plus a 3.3 V TVS or clamp diodes. If the RSSI source is high-impedance, buffer it with an op-amp follower. Check the voltage range and the pin location in the A210 manual.
 
@@ -77,6 +79,22 @@ Then open `http://<pi-ip>:8080`, go to **Setup**, and enter the NXR's IP address
 | Max call (s) | Keep this inside the NXR's TX time-out |
 
 AirBridge listens on UDP 5062 for SIP by default, with RTP on random even ports between 16384 and 32766. If the NXR only sends to 5060, change *Local SIP port*.
+
+## Carrier detection sources
+
+Pick any combination in Setup → *Trigger sources*. *Combine* = **any** fires on whichever source sees a carrier first. **all** requires every selected source to agree, which is useful for rejecting false triggers.
+
+| Source | How | Notes |
+|---|---|---|
+| RSSI | ADS1115 reading the A210 RSSI voltage | Best sensitivity if the A210 brings out a usable RSSI |
+| COR | K5TRA COR input (squelch-open line) | Clean and simple; follows the A210 squelch setting |
+| AF | The receiver audio on the K5TRA AF-IN | No extra wiring; two modes, below |
+
+**AF noise mode** (default) is for use with the A210 squelch **open**. AirBridge measures the receiver noise above the voice band (4–7 kHz on the raw 48 kHz capture). When a carrier arrives, the AGC quiets that noise, which is how a classic noise squelch works. It also catches an unmodulated carrier and isn't fooled by loud speech. Use the *Audio* tab spectrum to check that the A210 line-out actually passes audio above 4 kHz. If it doesn't, move the band lower or use level mode.
+
+**AF level mode** is for use with the A210 squelch **set**. Any audio above the threshold counts as a carrier. It is simpler, but a carrier with no modulation is missed until someone speaks.
+
+The *Test* tab's floor/carrier capture sets the RSSI and AF thresholds together. Like RSSI and COR, AF detection is ignored while transmitting and during the RX guard time.
 
 ## How timing works
 

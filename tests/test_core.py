@@ -132,3 +132,44 @@ def test_tx_dropped_when_channel_busy():
     assert ptt.log == []
     assert hooks.ends == ["dropped"]
     assert played == 0
+
+
+# ---------- AF carrier detection ----------
+from airbridge.detector import AfDetector, sources_of  # noqa: E402
+
+AFCFG = {"mode": "noise", "smoothing": 1, "level_on_dbfs": -35.0, "level_off_dbfs": -42.0,
+         "noise_lo_hz": 4000, "noise_hi_hz": 7000, "noise_on_dbfs": -60.0, "noise_off_dbfs": -52.0}
+
+
+def test_af_noise_mode_quieting_and_hysteresis():
+    a = AfDetector(AFCFG)
+    seq = [-45, -45, -70, -70, -56, -56, -50, -45]       # idle, carrier, in-between holds, clear
+    out = [a.update(-30, v) for v in seq]
+    assert out == [False, False, True, True, True, True, False, False]
+
+
+def test_af_level_mode():
+    a = AfDetector({**AFCFG, "mode": "level"})
+    out = [a.update(v, None) for v in (-60, -30, -38, -45)]
+    assert out == [False, True, True, False]
+
+
+def test_af_noise_without_hf_reports_error():
+    a = AfDetector(AFCFG)
+    a.update(-30, None)
+    assert a.error
+
+
+def test_af_source_any_and_all():
+    det = {"sources": ["rssi", "af"], "combine": "any", "on_threshold_v": 1.2, "off_threshold_v": 1.0,
+           "attack_ms": 0, "hang_ms": 0}
+    d = CarrierDetector(det, RSSI)
+    assert d.update(0.5, None, 0.0, af=True) == "start"
+    d2 = CarrierDetector({**det, "combine": "all"}, RSSI)
+    assert d2.update(0.5, None, 0.0, af=True) is None
+    assert d2.update(2.0, None, 0.1, af=True) == "start"
+
+
+def test_legacy_source_mapping():
+    assert sources_of({"source": "either"}) == ["rssi", "cor"]
+    assert sources_of({"sources": ["af"]}) == ["af"]
