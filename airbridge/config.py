@@ -103,6 +103,15 @@ DEFAULTS = {
         "no_audio_s": 3.0,          # ... for this long -> 'carrier, no audio' alarm
         "tone_freq": 1000.0,        # expected test-tone frequency
     },
+    "lcd": {
+        "enabled": True,            # 20x4 HD44780 on a PCF8574 I2C backpack
+        "i2c_bus": 1,
+        "address": "auto",          # auto (probe 0x27, 0x3F) or e.g. "0x27"
+        "backlight": "auto",        # on | off | auto (on with activity, off after the timeout)
+        "backlight_timeout_s": 120,
+        "refresh_hz": 4,
+        "page_s": 5,                # line 4 alternates IP address / today's counts
+    },
     "record": {
         "enabled": True,
         "format": "opus",           # opus | mp3 | wav

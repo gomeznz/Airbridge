@@ -220,3 +220,56 @@ def test_adaptive_falls_back_to_fixed_until_learned():
     d = CarrierDetector(det, {"smoothing": 1, "threshold_mode": "adaptive", "sample_hz": 20,
                               "on_offset_v": 0.15, "off_offset_v": 0.08})
     assert not d.adaptive and d.thresholds() == (1.2, 1.0)
+
+
+# ---------- LCD ----------
+from airbridge import lcd as lcdmod  # noqa: E402
+
+
+def _snap(**kw):
+    base = {"state": "idle", "rssi_v": 0.5, "on_v": 0.65, "af_value": None, "sip": "idle", "alarms": [],
+            "today": {"overs": 3, "sent": 2, "transmitted": 1}, "ip": "192.168.1.60"}
+    base.update(kw)
+    return base
+
+
+def test_lcd_lines_are_always_20x4():
+    for kw in ({}, {"state": "active", "over_s": 4.2}, {"state": "tx", "tx_s": 12.3}, {"state": "drop"},
+               {"sip": "connected", "sip_s": 75, "sip_in": True}, {"sip": "failed", "sip_err": "486 Busy Here, very long"},
+               {"alarms": ["carrier no audio", "LCD: something extremely long that must be cut"]}, {"rssi_v": None}):
+        lines = lcdmod.render(_snap(**kw), 1793100000.0, 0)
+        assert len(lines) == 4 and all(len(x) == 20 for x in lines), (kw, lines)
+
+
+def test_lcd_content():
+    l = lcdmod.render(_snap(state="active", over_s=4.2, sip="connected", sip_s=12), 1793100000.0, 1)
+    assert l[0].startswith("CARRIER 4.2s") and l[2].startswith("SIP connected 12s")
+    assert l[3].startswith("Ovr  3 NXR  2 TX  1")
+    assert lcdmod.render(_snap(), 1793100000.0, 0)[3].startswith("192.168.1.60")
+
+
+def test_lcd_bar_glyphs():
+    assert lcdmod.bar(0, 4) == "\x00" * 4
+    assert lcdmod.bar(1, 4) == "\x05" * 4
+    assert lcdmod.bar(0.5, 4) == "\x05\x05\x00\x00"
+    assert len(lcdmod.bar(0.37, 10)) == 10
+
+
+class _FakeBus:
+    def __init__(self):
+        self.writes = []
+    def write_byte(self, addr, b):
+        self.writes.append(b)
+    def close(self):
+        pass
+
+
+def test_hd44780_4bit_protocol():
+    d = lcdmod.Hd44780.__new__(lcdmod.Hd44780)
+    d.bus, d.addr, d.backlight = _FakeBus(), 0x27, True
+    d.write_at(1, 0, "A")
+    w = d.bus.writes
+    # set DDRAM 0x80|0x40 = 0xC0 as two nibbles, then 'A' (0x41) with RS; each nibble strobes EN high then low
+    assert w[0] == 0xC0 | lcdmod.EN | lcdmod.BL and w[1] == 0xC0 | lcdmod.BL
+    assert w[2] == 0x00 | lcdmod.EN | lcdmod.BL and w[3] == 0x00 | lcdmod.BL
+    assert w[4] == 0x40 | lcdmod.RS | lcdmod.EN | lcdmod.BL and w[6] == 0x10 | lcdmod.RS | lcdmod.EN | lcdmod.BL

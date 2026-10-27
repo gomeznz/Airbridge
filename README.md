@@ -40,6 +40,7 @@ IC-A210 ──RSSI──► ADS1115 ──I²C──┐
 | Raspberry Pi 4 or 5 | Wired Ethernet to the NXR's LAN |
 | ADS1115 module | VDD 3.3 V, GND, SDA→GPIO2 (pin 3), SCL→GPIO3 (pin 5), ADDR→GND (0x48) |
 | K5TRA 1.1 (CM119A) | RX: A210 line/speaker out → K5TRA input. TX: K5TRA output → A210 mic/line in. PTT: CM119A GPIO (default GPIO3) → A210 PTT. COS (optional): A210 squelch → K5TRA COS input |
+| 20×4 LCD (optional) | HD44780 with a PCF8574 I²C backpack, on the same I²C bus as the ADS1115 (SDA → GPIO2, SCL → GPIO3). Address 0x27 or 0x3F is auto-detected. VCC 5 V: most backpacks pull SDA/SCL up to 5 V, so remove those pull-ups or fit a level shifter (the Pi's pins are 3.3 V only). |
 | Relay module | Opto-isolated, driven from GPIO27 (pin 13). Use an interposing relay for anything serious. |
 | COR (optional) | Into the K5TRA COR input. A Pi GPIO (GPIO17, pin 11) is available as an alternative. |
 
@@ -135,6 +136,19 @@ The **History** tab keeps 24 h of RSSI at 1 s resolution, and it survives restar
 Leave it running for a few hours, including some real traffic, before using the suggestion. For a belt-and-braces trigger, use RSSI + AF noise with *all*.
 
 **Tap hardware.** Buffer the AGC/RSSI tap with a rail-to-rail op-amp follower and a small RC (10–20 ms) before the ADS1115, and power the ADS1115 from a clean 3.3 V. Loading the AGC line directly can change the radio's own AGC behaviour and adds noise to the reading.
+
+## Front panel LCD
+
+A 20×4 I²C LCD shows the bridge state at the radio:
+
+```
+CARRIER 4.2s   23:47      IDLE / CARRIER / HANG / TX / BUSY: NXR DROPPED, plus the time
+RSSI███████▏   2.35V      RSSI bar and volts (AF level if RSSI isn't used)
+SIP connected 12s         call state; IN for calls from the NXR; FAIL + reason
+192.168.1.60              alarms (flashing) take priority; otherwise alternates IP / today's counts
+```
+
+The Status page shows a live mirror of the display, so you can check it in simulation or remotely. The backlight can be always on, always off, or *auto*: lit while there's activity and off after a timeout. If the display is unplugged, AirBridge keeps running and reconnects every 10 s. Settings are in Setup → *Front panel LCD*.
 
 ## Carrier detection sources
 

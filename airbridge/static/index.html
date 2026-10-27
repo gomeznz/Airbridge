@@ -105,6 +105,12 @@ table.t th{text-align:left;color:var(--dim);font-weight:600;font-size:12px;paddi
 table.t td{padding:8px 6px;border-bottom:1px solid #21262d;vertical-align:middle}
 table.t td.m{font-family:var(--mono);font-size:12.5px}
 .tscroll{overflow-x:auto}
+.lcd{background:#1d3b12;border:6px solid #0b0f0a;border-radius:6px;padding:10px 12px;display:inline-block;
+  box-shadow:inset 0 0 18px rgba(0,0,0,.55);transition:background .3s;max-width:100%;overflow:hidden}
+.lcd.off{background:#141c11}
+.lcd pre{margin:0;font:600 clamp(11px,3.6vw,17px)/1.35 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#b9f27c;
+  letter-spacing:.06em;text-shadow:0 0 4px rgba(185,242,124,.35)}
+.lcd.off pre{color:#506b3a;text-shadow:none}
 .alarms{display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 .alarms .pill{font-size:12.5px;padding:4px 10px}
 .af2{display:grid;grid-template-columns:1fr;gap:14px}
@@ -193,6 +199,11 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
           <dt>K5TRA HID</dt><dd id="txHid">–</dd>
         </dl>
         <div class="row need-op" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
+      </div>
+
+      <div class="card s8" id="lcdCard">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Front panel LCD</h3><span class="muted" id="lcdInfo"></span></div>
+        <div style="margin-top:10px"><div class="lcd" id="lcdBox"><pre id="lcdText"></pre></div></div>
       </div>
 
       <div class="card s4">
@@ -526,6 +537,13 @@ function render(s){
   $('relaySub').textContent = s.relay_override==null ? 'auto' : 'forced ' + (s.relay_override ? 'on':'off');
 
   $('audDev').textContent = 'Audio: ' + (s.audio_dev || '–');
+  const L = s.lcd; $('lcdCard').style.display = L.enabled ? '' : 'none';
+  if (L.enabled) {
+    const G = [' ', '▏', '▎', '▌', '▊', '█'];
+    $('lcdText').textContent = L.lines.map(l => l.replace(/[\x00-\x05]/g, c => G[c.charCodeAt(0)])).join('\n');
+    $('lcdBox').classList.toggle('off', !L.backlight);
+    $('lcdInfo').textContent = L.simulated ? 'mirror (simulated)' : L.error ? L.error : `mirror · I²C ${L.address || '?'}` + (L.backlight ? '' : ' · backlight off');
+  }
   const t = s.tx, pl = $('pttLamp');
   pl.classList.toggle('tx', t.ptt);
   $('pttText').textContent = t.ptt ? 'TX' : (t.state==='dropping' ? 'DROP' : 'RX');
@@ -716,6 +734,14 @@ const SCHEMA = [
    ['no_audio_dbfs','No-audio threshold (dBFS)','num','Carrier present with audio below this ...'],
    ['no_audio_s','No-audio time (s)','num','... for this long raises "carrier, no audio".'],
    ['tone_freq','Expected test tone (Hz)','num']]],
+ ['lcd','Front panel LCD (20×4 I²C)',[
+   ['enabled','Enabled','bool','HD44780 20×4 on a PCF8574 backpack, on the same I²C bus as the ADS1115.'],
+   ['i2c_bus','I²C bus','int'],
+   ['address','I²C address','text','auto probes 0x27 and 0x3F (PCF8574 / PCF8574A). Or enter e.g. 0x27.'],
+   ['backlight','Backlight','select','auto = on while there is activity, off after the timeout.',['auto','on','off']],
+   ['backlight_timeout_s','Backlight timeout (s)','int'],
+   ['refresh_hz','Refresh rate (Hz)','int'],
+   ['page_s','Bottom line page time (s)','int','Line 4 alternates IP address and today\'s counts (alarms take priority).']]],
  ['record','Recording',[
    ['enabled','Record overs','bool'],
    ['format','Format','select',null,['opus','mp3','wav']],

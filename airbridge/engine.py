@@ -22,6 +22,7 @@ from .audio import AudioSource, tone_frames
 from .detector import ACTIVE, ATTACK, AfDetector, CarrierDetector, sources_of, volts_to_dbm
 from .history import History
 from .k5tra import K5tra
+from .lcd import Lcd
 from .recorder import OverRecording, Store
 from .sip import SipUA
 from .tx import TxController, tone_burst
@@ -99,6 +100,9 @@ class Engine:
         self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
         self.poll_thread.start()
         self._housekeeping = asyncio.create_task(self._housekeep())
+        self._today_cache = (0.0, {})
+        self.lcd = Lcd(c["lcd"], sim, self.lcd_snapshot)
+        self.lcd.start()
         self.event("info", f"started ({'SIMULATION' if sim else 'hardware'} mode)")
         for err in self._hw_errors():
             self.event("error", err)
@@ -109,6 +113,9 @@ class Engine:
             errs.append(self.af_det.error)
         if self.config["tx"]["enabled"]:
             errs.append(self.k5.error)
+        lcd = getattr(self, "lcd", None)
+        if lcd and self.config["lcd"]["enabled"]:
+            errs.append(lcd.error)
         return [e for e in errs if e]
 
     async def stop(self):
@@ -116,6 +123,7 @@ class Engine:
         self._housekeeping.cancel()
         if self.poll_thread.is_alive():
             self.poll_thread.join(timeout=2)
+        self.lcd.stop()
         self.audio.stop()
         self.tx.force_release()
         with self._lock:
@@ -581,6 +589,7 @@ class Engine:
             },
             "alarms": sorted(self.alarms),
             "relay": self.relay.state,
+            "lcd": self.lcd.mirror(),
             "relay_override": self._relay_override,
             "tx": {**self.tx.snapshot(), "hid": self.k5.path, "rx_buffer_ms":
                    round(sum(len(f) for f in list(call.rx_frames)) / 8) if call else 0},
@@ -602,6 +611,37 @@ class Engine:
             "sim_auto": hardware.SIM.auto,
             "sim_forced": hardware.SIM.forced,
             "sim_tone": hardware.SIM.tone,
+        }
+
+    ALARM_SHORT = {"no_audio": "carrier no audio", "rx_clip": "RX clipping", "tx_clip": "TX clipping"}
+
+    def lcd_snapshot(self):
+        """Cheap snapshot for the front-panel LCD (no FFTs, cached DB counts)."""
+        now = time.time()
+        d, call, tx = self.det, self.call, self.tx
+        if now - self._today_cache[0] > 5:
+            self._today_cache = (now, self.store.stats_today())
+        if tx.ptt:
+            state = "tx"
+        elif tx.state == "dropping":
+            state = "drop"
+        else:
+            state = d.state
+        over = self.over
+        return {
+            "state": state,
+            "tx_s": (now - tx.key_time) if tx.ptt and tx.key_time else None,
+            "over_s": (now - over["started"]) if over else None,
+            "rssi_v": d.rssi if "rssi" in sources_of(self.config["detect"]) or d.rssi is not None else None,
+            "on_v": d.thresholds()[0],
+            "af_value": self.af_det.value,
+            "sip": ("disabled" if not self.ua else call.state if call and call.state in LIVE_CALL + ("failed",)
+                    and not (call.state == "failed" and now - (call.started or 0) > 30) else "idle"),
+            "sip_in": bool(call and call.direction == "in"),
+            "sip_s": (now - call.answered_at) if call and call.answered_at and call.state == "connected" else None,
+            "sip_err": call.error if call else None,
+            "alarms": [self.ALARM_SHORT.get(a, a) for a in sorted(self.alarms)] + self._hw_errors()[:1],
+            "today": self._today_cache[1],
         }
 
     async def _housekeep(self):
