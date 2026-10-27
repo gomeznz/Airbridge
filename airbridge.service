@@ -1,0 +1,18 @@
+[Unit]
+Description=AirBridge - airband carrier detect, record and SIP forward
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+User=airbridge
+Group=airbridge
+SupplementaryGroups=audio gpio i2c
+Environment=AIRBRIDGE_DATA=/var/lib/airbridge
+WorkingDirectory=/opt/airbridge
+ExecStart=/opt/airbridge/venv/bin/python -m airbridge
+Restart=always
+RestartSec=3
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn>=0.29
+websockets>=12
+python-multipart>=0.0.9
+numpy>=1.26
+sounddevice>=0.4.6
+smbus2>=0.4.3
+gpiozero>=2.0

@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AirBridge</title>
+<link rel="icon" href="/favicon.svg">
+<meta name="theme-color" content="#0d1117">
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --line:#30363d; --text:#e6edf3; --dim:#8b949e;
+  --amber:#e3a008; --green:#3fb950; --red:#f85149; --blue:#58a6ff; --violet:#bc8cff;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:5;background:rgba(13,17,23,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{max-width:1100px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.2px}
+.brand small{font-weight:500;color:var(--dim)}
+.conn{margin-left:auto;font:12px var(--mono);color:var(--dim);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
+.dot.ok{background:var(--green)}
+nav{max-width:1100px;margin:0 auto;padding:0 8px;display:flex;gap:2px;overflow-x:auto}
+nav button{background:none;border:0;color:var(--dim);font:inherit;padding:10px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+nav button.on{color:var(--text);border-color:var(--amber)}
+main{max-width:1100px;margin:0 auto;padding:16px}
+section{display:none} section.on{display:block}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;grid-column:span 12}
+@media(min-width:760px){.s6{grid-column:span 6}.s4{grid-column:span 4}.s8{grid-column:span 8}}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.banner{display:none;margin-bottom:12px;padding:10px 12px;border-radius:10px;border:1px solid #5a2d2d;background:#2a1517;color:#ffb3ad;font-size:14px}
+.banner.sim{border-color:#5c4a12;background:#2a2210;color:#f2d27a}
+
+/* carrier hero */
+.hero{display:flex;align-items:center;gap:16px}
+.lamp{width:72px;height:72px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:radial-gradient(circle at 35% 30%,#2b3138,#14181d);border:2px solid var(--line);transition:.15s}
+.lamp svg{width:34px;height:34px;opacity:.35}
+.lamp.on{background:radial-gradient(circle at 35% 30%,#ffd666,#c98400);border-color:#ffcf4d;box-shadow:0 0 28px rgba(227,160,8,.55)}
+.lamp.on svg{opacity:1}
+.lamp.hang{background:radial-gradient(circle at 35% 30%,#7a6220,#3a2f12);border-color:#8a6d1c}
+.hero .big{font-size:26px;font-weight:700;line-height:1.1}
+.hero .sub{color:var(--dim);font:13px var(--mono);margin-top:4px}
+
+/* meters */
+.meter{position:relative;height:22px;background:var(--panel2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.meter .fill{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#2f6f3a,var(--green));transition:width .12s}
+.meter.carrier .fill{background:linear-gradient(90deg,#8a6400,var(--amber))}
+.meter .mark{position:absolute;top:-2px;bottom:-2px;width:2px}
+.meter .mark.on{background:var(--amber)} .meter .mark.off{background:var(--blue)}
+.readout{display:flex;justify-content:space-between;align-items:baseline;margin:8px 0 2px;font-family:var(--mono)}
+.readout b{font-size:24px}
+.legend{font:12px var(--mono);color:var(--dim);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+.legend i{display:inline-block;width:10px;height:3px;vertical-align:middle;margin-right:5px}
+canvas{width:100%;height:90px;display:block;margin-top:10px}
+
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px}
+.kv dt{color:var(--dim)} .kv dd{margin:0;font-family:var(--mono);text-align:right;overflow-wrap:anywhere}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font:600 12px var(--mono);border:1px solid var(--line);background:var(--panel2)}
+.pill.g{color:var(--green);border-color:#244b2c} .pill.a{color:var(--amber);border-color:#5c4a12}
+.pill.r{color:var(--red);border-color:#5a2d2d} .pill.b{color:var(--blue);border-color:#1f3c66}
+.pill.v{color:var(--violet);border-color:#4a3866}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tile{background:var(--panel2);border-radius:10px;padding:10px;text-align:center}
+.tile b{display:block;font:700 20px var(--mono)} .tile span{font-size:12px;color:var(--dim)}
+
+.log{max-height:300px;overflow:auto;font:12.5px var(--mono)}
+.log div{padding:5px 0;border-bottom:1px solid #21262d;display:flex;gap:10px}
+.log time{color:var(--dim);flex:none}
+.log .error{color:var(--red)} .log .carrier{color:var(--amber)} .log .sip{color:var(--blue)}
+
+/* recordings */
+.rec{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:12px 0;border-bottom:1px solid #21262d}
+.rec .t{font-family:var(--mono)} .rec .meta{color:var(--dim);font-size:13px}
+.rec audio{grid-column:1/-1;width:100%;height:36px}
+.pager{display:flex;gap:8px;justify-content:center;margin-top:12px}
+
+/* forms */
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer}
+.btn:hover{border-color:#484f58}
+.btn.pri{background:var(--amber);border-color:var(--amber);color:#111;font-weight:600}
+.btn.dng{color:var(--red)} .btn.sm{padding:5px 10px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 14px 4px;margin:0 0 14px;background:var(--panel)}
+legend{padding:0 6px;font-weight:600}
+.f{display:grid;grid-template-columns:1fr;gap:4px;margin-bottom:12px}
+@media(min-width:640px){.f{grid-template-columns:230px 1fr;align-items:start}}
+.f label{font-size:14px;padding-top:8px}
+.f .help{font-size:12.5px;color:var(--dim);margin-top:3px}
+input[type=text],input[type=number],input[type=password],select{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:14px var(--mono)}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--amber);margin-top:8px}
+.savebar{position:sticky;bottom:0;padding:12px 0;background:linear-gradient(transparent,var(--bg) 30%);display:flex;gap:8px;align-items:center}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#21262d;border:1px solid var(--line);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1}
+.muted{color:var(--dim);font-size:13.5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><img src="/favicon.svg" width="22" height="22" alt=""> AirBridge <small id="site"></small></div>
+    <div class="conn"><span class="dot" id="wsdot"></span><span id="wstext">offline</span></div>
+  </div>
+  <nav>
+    <button data-tab="status" class="on">Status</button>
+    <button data-tab="recs">Recordings</button>
+    <button data-tab="setup">Setup</button>
+    <button data-tab="test">Test</button>
+  </nav>
+</header>
+
+<main>
+  <div class="banner sim" id="simBanner">Simulation mode: RSSI and audio are synthetic. Use the Test tab to key a fake carrier.</div>
+  <div class="banner" id="errBanner"></div>
+
+  <!-- STATUS -->
+  <section id="status" class="on">
+    <div class="grid">
+      <div class="card s6">
+        <div class="hero">
+          <div class="lamp" id="lamp"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round"><path d="M4 18a8 8 0 0 1 16 0"/><path d="M8 18a4 4 0 0 1 8 0"/><circle cx="12" cy="18" r="1.4" fill="#111"/></svg></div>
+          <div>
+            <div class="big" id="carrierText">No carrier</div>
+            <div class="sub" id="carrierSub">detector idle</div>
+          </div>
+        </div>
+        <div class="tiles" style="margin-top:14px">
+          <div class="tile"><b id="tOvers">0</b><span>overs today</span></div>
+          <div class="tile"><b id="tSecs">0</b><span>seconds</span></div>
+          <div class="tile"><b id="tSent">0</b><span>forwarded</span></div>
+          <div class="tile"><b id="tFail">0</b><span>failed</span></div>
+        </div>
+      </div>
+
+      <div class="card s6">
+        <h3>RSSI</h3>
+        <div class="readout"><b id="rssiV">–</b><span id="rssiDbm" class="muted"></span></div>
+        <div class="meter" id="rssiMeter"><div class="fill"></div><div class="mark on"></div><div class="mark off"></div></div>
+        <div class="legend"><span><i style="background:var(--amber)"></i>on <span id="onV"></span></span><span><i style="background:var(--blue)"></i>off <span id="offV"></span></span><span>COR <span id="cor">–</span></span></div>
+        <canvas id="spark"></canvas>
+      </div>
+
+      <div class="card s4">
+        <h3>Relay output</h3>
+        <div class="hero"><div class="lamp" id="relayLamp" style="width:48px;height:48px"></div>
+          <div><div class="big" id="relayText" style="font-size:20px">OFF</div><div class="sub" id="relaySub">auto</div></div></div>
+      </div>
+
+      <div class="card s4">
+        <h3>Audio in</h3>
+        <div class="readout"><b id="audDb">–</b><span class="muted">dBFS</span></div>
+        <div class="meter" id="audMeter"><div class="fill"></div></div>
+        <div class="legend"><span id="audDev"></span></div>
+      </div>
+
+      <div class="card s4">
+        <h3>SIP → NXR</h3>
+        <dl class="kv">
+          <dt>Call</dt><dd><span class="pill" id="sipState">idle</span></dd>
+          <dt>Target</dt><dd id="sipTarget">–</dd>
+          <dt>Codec</dt><dd id="sipCodec">–</dd>
+          <dt>Connected</dt><dd id="sipUp">–</dd>
+          <dt>Buffer</dt><dd id="sipBuf">–</dd>
+          <dt id="regRow">Register</dt><dd id="sipReg">–</dd>
+        </dl>
+        <div class="muted" id="sipErr" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h3>Events</h3>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RECORDINGS -->
+  <section id="recs">
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Recordings</h3><button class="btn sm" onclick="loadRecs()">Refresh</button></div>
+      <div id="recList"></div>
+      <div class="pager"><button class="btn sm" id="prev">Newer</button><span class="muted" id="pageInfo"></span><button class="btn sm" id="next">Older</button></div>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section id="setup">
+    <form id="cfgForm" autocomplete="off"></form>
+    <div class="savebar"><button class="btn pri" id="saveBtn">Save &amp; apply</button><span class="muted" id="saveNote"></span></div>
+  </section>
+
+  <!-- TEST -->
+  <section id="test">
+    <div class="grid">
+      <div class="card s6">
+        <h3>SIP test call</h3>
+        <p class="muted">Calls the NXR, sends any configured DTMF, then plays a 1 kHz tone at −10 dBFS.</p>
+        <div class="row"><input type="number" id="tcSecs" value="5" min="1" max="30" style="width:90px"> <span class="muted">seconds</span>
+          <button class="btn pri" onclick="post('/api/test/call?seconds='+tcSecs.value)">Place test call</button>
+          <button class="btn dng" onclick="post('/api/test/hangup')">Hang up</button></div>
+      </div>
+      <div class="card s6">
+        <h3>Relay</h3>
+        <p class="muted">Force the relay for wiring checks. Auto returns it to the configured mode.</p>
+        <div class="row"><button class="btn" onclick="post('/api/relay/on')">Force ON</button><button class="btn" onclick="post('/api/relay/off')">Force OFF</button><button class="btn pri" onclick="post('/api/relay/auto')">Auto</button></div>
+      </div>
+      <div class="card s6">
+        <h3>Thresholds from live RSSI</h3>
+        <p class="muted">With no signal, capture the noise floor. Then key a weak test carrier and capture it. The on threshold is set just below the carrier, the off threshold just above the floor.</p>
+        <div class="row"><button class="btn" onclick="cap('floor')">Capture floor</button><button class="btn" onclick="cap('sig')">Capture weak carrier</button><button class="btn pri" onclick="applyThresh()">Apply</button></div>
+        <dl class="kv" style="margin-top:10px"><dt>Floor</dt><dd id="capFloor">–</dd><dt>Carrier</dt><dd id="capSig">–</dd><dt>Proposed on / off</dt><dd id="capProp">–</dd></dl>
+      </div>
+      <div class="card s6">
+        <h3>dBm calibration</h3>
+        <p class="muted">Inject two known levels from a signal generator and capture each reading.</p>
+        <div class="row"><input type="number" id="cal1" placeholder="dBm #1" style="width:110px" value="-110"><button class="btn" onclick="calCap(1)">Capture #1</button></div>
+        <div class="row" style="margin-top:8px"><input type="number" id="cal2" placeholder="dBm #2" style="width:110px" value="-70"><button class="btn" onclick="calCap(2)">Capture #2</button></div>
+        <div class="muted" id="calInfo" style="margin-top:8px"></div>
+      </div>
+      <div class="card" id="simCard" style="display:none">
+        <h3>Simulator</h3>
+        <div class="row"><button class="btn pri" onclick="post('/api/sim/on')">Carrier ON</button><button class="btn" onclick="post('/api/sim/off')">Carrier OFF</button><button class="btn" onclick="post('/api/sim/release')">Release</button><button class="btn" id="simAuto" onclick="post('/api/sim/auto')">Random traffic: off</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = null, CFG = null, hist = [];
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab === 'recs') loadRecs();
+  if (b.dataset.tab === 'setup') loadCfg();
+  location.hash = b.dataset.tab;
+});
+if (location.hash) document.querySelector(`nav button[data-tab="${location.hash.slice(1)}"]`)?.click();
+
+function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('on'); clearTimeout(toast.h); toast.h=setTimeout(()=>e.classList.remove('on'),2600); }
+async function post(url, body){
+  const r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) toast(j.detail || ('Error '+r.status)); return j;
+}
+const fmtT = t => new Date(t*1000).toLocaleTimeString([], {hour12:false});
+const fmtDT = t => new Date(t*1000).toLocaleString([], {hour12:false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+// ---------- websocket ----------
+function connect(){
+  const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws.onopen = () => { $('wsdot').classList.add('ok'); $('wstext').textContent='live'; };
+  ws.onclose = e => { $('wsdot').classList.remove('ok'); $('wstext').textContent='offline';
+    if (e.code === 4401) location.href='/login'; else setTimeout(connect, 2000); };
+  ws.onmessage = m => { const d = JSON.parse(m.data);
+    if (d.type==='status') render(d);
+    else if (d.type==='event') addEvent(d);
+    else if (d.type==='events') { $('log').innerHTML=''; d.items.forEach(addEvent); } };
+}
+connect();
+
+function addEvent(e){
+  const div = document.createElement('div');
+  div.innerHTML = `<time>${fmtT(e.t)}</time><span class="${e.kind}"></span>`;
+  div.lastChild.textContent = e.text;
+  const log = $('log'); log.prepend(div);
+  while (log.children.length > 200) log.lastChild.remove();
+}
+
+const SCALE = () => Math.max(3.3, (S && S.on_v||0)*1.6);
+const pct = v => Math.max(0, Math.min(100, v / SCALE() * 100));
+
+function render(s){
+  S = s;
+  $('site').textContent = s.site;
+  $('simBanner').style.display = s.simulate ? 'block' : 'none';
+  $('simCard').style.display = s.simulate ? 'block' : 'none';
+  $('simAuto').textContent = 'Random traffic: ' + (s.sim_auto ? 'on' : 'off');
+  const eb = $('errBanner'); eb.style.display = s.errors.length ? 'block' : 'none'; eb.textContent = s.errors.join(' · ');
+
+  const lamp = $('lamp');
+  lamp.classList.toggle('on', s.detector==='active'); lamp.classList.toggle('hang', s.detector==='hang');
+  $('carrierText').textContent = s.detector==='active' ? 'Carrier' : s.detector==='hang' ? 'Carrier (hang)' : s.detector==='attack' ? 'Qualifying…' : 'No carrier';
+  $('carrierSub').textContent = s.over_s!=null ? `over #${s.over_id} · ${s.over_s.toFixed(1)} s` : 'detector ' + s.detector;
+  $('tOvers').textContent = s.today.overs; $('tSecs').textContent = Math.round(s.today.seconds);
+  $('tSent').textContent = s.today.sent; $('tFail').textContent = s.today.failed;
+
+  $('rssiV').textContent = s.rssi_v==null ? '–' : s.rssi_v.toFixed(3)+' V';
+  $('rssiDbm').textContent = s.rssi_dbm==null ? '' : s.rssi_dbm.toFixed(1)+' dBm';
+  const m = $('rssiMeter'); m.classList.toggle('carrier', s.carrier);
+  m.querySelector('.fill').style.width = pct(s.rssi_v||0)+'%';
+  m.querySelector('.mark.on').style.left = pct(s.on_v)+'%';
+  m.querySelector('.mark.off').style.left = pct(s.off_v)+'%';
+  $('onV').textContent = (+s.on_v).toFixed(2)+' V'; $('offV').textContent = (+s.off_v).toFixed(2)+' V';
+  $('cor').textContent = s.cor==null ? 'n/a' : (s.cor ? 'open' : 'closed');
+  hist.push([s.rssi_v, s.carrier]); if (hist.length > 300) hist.shift(); spark();
+
+  $('relayLamp').classList.toggle('on', s.relay);
+  $('relayText').textContent = s.relay ? 'ON' : 'OFF';
+  $('relaySub').textContent = s.relay_override==null ? 'auto' : 'forced ' + (s.relay_override ? 'on':'off');
+
+  $('audDb').textContent = s.audio_db.toFixed(1);
+  $('audMeter').querySelector('.fill').style.width = Math.max(0, Math.min(100, (s.audio_db+60)/60*100))+'%';
+  $('audDev').textContent = s.audio_dev || '';
+
+  const sp = s.sip, st = $('sipState');
+  st.textContent = sp.enabled ? sp.state : 'disabled';
+  st.className = 'pill ' + ({connected:'g', calling:'a', trying:'a', ringing:'a', ending:'b', failed:'r'}[sp.state] || '');
+  $('sipTarget').textContent = sp.target; $('sipCodec').textContent = sp.codec;
+  $('sipUp').textContent = sp.connected_s!=null ? sp.connected_s.toFixed(1)+' s' : '–';
+  $('sipBuf').textContent = sp.buffer_ms ? sp.buffer_ms+' ms' : '–';
+  const regShow = sp.registered !== null; $('regRow').style.display = $('sipReg').style.display = regShow ? '' : 'none';
+  $('sipReg').innerHTML = sp.registered ? '<span class="pill g">yes</span>' : '<span class="pill r">no</span>';
+  $('sipErr').textContent = sp.reg_error || (sp.last_error ? 'Last error: ' + sp.last_error : '');
+}
+
+function spark(){
+  const c = $('spark'), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w*dpr) { c.width = w*dpr; c.height = h*dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const y = v => h - (pct(v)/100)*(h-4) - 2, n = 300;
+  [[S.on_v,'#e3a008'],[S.off_v,'#58a6ff']].forEach(([v,col])=>{ g.strokeStyle=col; g.globalAlpha=.45; g.setLineDash([4,4]); g.beginPath(); g.moveTo(0,y(v)); g.lineTo(w,y(v)); g.stroke(); });
+  g.setLineDash([]); g.globalAlpha=1;
+  hist.forEach((p,i)=>{ if(p[1]){ g.fillStyle='rgba(227,160,8,.10)'; g.fillRect(w-(hist.length-i)*w/n,0,w/n+1,h);} });
+  g.strokeStyle='#3fb950'; g.lineWidth=1.6; g.beginPath();
+  hist.forEach((p,i)=>{ const x = w-(hist.length-1-i)*w/n; if(p[0]==null) return; i? g.lineTo(x,y(p[0])) : g.moveTo(x,y(p[0])); });
+  g.stroke();
+}
+
+// ---------- recordings ----------
+let recOff = 0; const REC_N = 25;
+$('prev').onclick = () => { recOff = Math.max(0, recOff-REC_N); loadRecs(); };
+$('next').onclick = () => { recOff += REC_N; loadRecs(); };
+const FWD = {sent:['g','forwarded'], failed:['r','failed'], skipped:['a','skipped'], disabled:['', 'not sent'], pending:['b','pending']};
+async function loadRecs(){
+  const j = await (await fetch(`/api/recordings?limit=${REC_N}&offset=${recOff}`)).json();
+  const L = $('recList'); L.innerHTML = j.items.length ? '' : '<p class="muted">No recordings yet.</p>';
+  j.items.forEach(r => {
+    const [cls, label] = FWD[r.forward] || ['', r.forward];
+    const d = document.createElement('div'); d.className = 'rec';
+    d.innerHTML = `<div><div class="t">${fmtDT(r.started)}</div>
+      <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.peak_v!=null?' · peak '+r.peak_v.toFixed(2)+' V':''}</div></div>
+      <div style="text-align:right"><span class="pill ${cls}" title="${r.forward_detail||''}">${label}</span><br>
+      <button class="btn sm dng" style="margin-top:6px">Delete</button></div>
+      ${r.file ? `<audio controls preload="none" src="/api/recordings/${r.id}/audio"></audio>` : ''}`;
+    if (r.forward_detail) { const m=document.createElement('div'); m.className='meta'; m.style.gridColumn='1/-1'; m.textContent=r.forward_detail; d.append(m); }
+    d.querySelector('button').onclick = async () => { if (!confirm('Delete this recording?')) return;
+      await fetch('/api/recordings/'+r.id,{method:'DELETE'}); loadRecs(); };
+    L.append(d);
+  });
+  $('pageInfo').textContent = j.total ? `${recOff+1}–${Math.min(recOff+REC_N, j.total)} of ${j.total}` : '';
+  $('prev').disabled = recOff===0; $('next').disabled = recOff+REC_N >= j.total;
+}
+
+// ---------- setup ----------
+const SCHEMA = [
+ ['general','General',[
+   ['site_name','Site name','text'],
+   ['simulate','Simulation mode','bool','Run without hardware: synthetic RSSI and audio.']]],
+ ['detect','Carrier detection',[
+   ['source','Trigger source','select',null,['rssi','cor','either','both']],
+   ['on_threshold_v','On threshold (V)','num','RSSI at or above this opens the detector.'],
+   ['off_threshold_v','Off threshold (V)','num','RSSI at or below this closes it. Keep below the on threshold for hysteresis.'],
+   ['attack_ms','Attack (ms)','int','Carrier must hold this long before it counts. Filters clicks and blips.'],
+   ['hang_ms','Hang (ms)','int','Carrier must be gone this long before the over ends.']]],
+ ['rssi','RSSI input (ADS1115)',[
+   ['enabled','Enabled','bool'],
+   ['i2c_bus','I²C bus','int'],
+   ['i2c_address','I²C address','hex','0x48 with ADDR to GND.'],
+   ['channel','Channel (AIN)','select',null,[0,1,2,3]],
+   ['gain_fsr_v','ADC full scale (V)','select',null,[6.144,4.096,2.048,1.024,0.512,0.256]],
+   ['divider_ratio','Divider ratio','num','Input volts = ADC volts × ratio. 2.0 for a 10k/10k divider.'],
+   ['sample_hz','Sample rate (Hz)','int'],
+   ['smoothing','Smoothing (samples)','int'],
+   ['invert','Inverted RSSI','bool','Tick if the voltage falls as signal rises.']]],
+ ['cor','COR / squelch input',[
+   ['enabled','Enabled','bool'],
+   ['gpio','GPIO (BCM)','int'],
+   ['active_low','Active low','bool'],
+   ['pull_up','Internal pull-up','bool']]],
+ ['relay','Relay output',[
+   ['enabled','Enabled','bool'],
+   ['gpio','GPIO (BCM)','int'],
+   ['active_high','Active high','bool'],
+   ['mode','Relay follows','select',null,['carrier','call','either']],
+   ['hold_ms','Hold (ms)','int','Extra on-time after the condition ends.']]],
+ ['audio','Audio input',[
+   ['device','Device','device','Blank auto-detects the K5TRA / C-Media card.'],
+   ['capture_rate','Capture rate (Hz)','select',null,[48000,16000,8000]],
+   ['gain_db','Input gain (dB)','num'],
+   ['preroll_ms','Pre-roll (ms)','int','Audio kept from before the detector fires; also covers call setup. Must exceed attack time.']]],
+ ['record','Recording',[
+   ['enabled','Record overs','bool'],
+   ['format','Format','select',null,['opus','mp3','wav']],
+   ['keep_days','Keep for (days)','int','0 keeps everything.']]],
+ ['sip','SIP to NXR-1800',[
+   ['enabled','Enabled','bool'],
+   ['target_host','Repeater IP','text'],
+   ['target_port','Repeater SIP port','int'],
+   ['target_user','Number / extension to dial','text','User part of the request URI. Leave blank to call sip:IP.'],
+   ['local_port','Local SIP port','int'],
+   ['local_user','Local user','text'],
+   ['display_name','Display name','text'],
+   ['auth_user','Auth username','text','Only if the NXR challenges for digest auth.'],
+   ['auth_password','Auth password','password'],
+   ['register','Register first','bool','Only if the NXR insists on a registration from this UA.'],
+   ['register_expires','Register expiry (s)','int'],
+   ['codec','Codec','select',null,['PCMU','PCMA']],
+   ['ptime_ms','Packet time (ms)','select',null,[20,30,40]],
+   ['dtmf_digits','DTMF after answer','text','e.g. talkgroup ID, if the NXR selects the group by DTMF.'],
+   ['dtmf_mode','DTMF method','select',null,['rfc2833','info']],
+   ['dtmf_delay_ms','DTMF delay (ms)','int'],
+   ['post_answer_delay_ms','Post-answer delay (ms)','int','Pause after answer before audio starts.'],
+   ['forward_preroll_ms','Forwarded pre-roll (ms)','int','Audio from before the carrier was qualified that is sent on the call (attack time is added). Recordings keep the full pre-roll.'],
+   ['max_call_s','Max call (s)','int'],
+   ['cooldown_s','Cooldown between calls (s)','int'],
+   ['tx_gain_db','Send gain (dB)','num']]],
+ ['web','Web',[
+   ['port','Port','int','Takes effect after a service restart.'],
+   ['password','Password','password','Blank disables login.']]],
+];
+
+let devices = null;
+async function loadCfg(){
+  CFG = await (await fetch('/api/config')).json();
+  if (!devices) devices = await (await fetch('/api/audio-devices')).json();
+  const F = $('cfgForm'); F.innerHTML = '';
+  SCHEMA.forEach(([sec, title, fields]) => {
+    const fs = document.createElement('fieldset'); fs.innerHTML = `<legend>${title}</legend>`;
+    fields.forEach(([k, label, type, help, opts]) => {
+      const v = CFG[sec][k], id = `f_${sec}_${k}`;
+      let inp;
+      if (type==='bool') inp = `<input type=checkbox id=${id} ${v?'checked':''}>`;
+      else if (type==='select') inp = `<select id=${id}>${opts.map(o=>`<option ${String(o)===String(v)?'selected':''}>${o}</option>`).join('')}</select>`;
+      else if (type==='device') inp = `<select id=${id}><option value="">(auto)</option>${devices.map(d=>`<option value="${d.name.replace(/"/g,'&quot;')}" ${d.name===v?'selected':''}>${d.name}</option>`).join('')}</select>`;
+      else inp = `<input type=${type==='password'?'password':(type==='text'||type==='hex'?'text':'number')} ${type==='num'?'step=any':''} id=${id}>`;
+      const row = document.createElement('div'); row.className='f';
+      row.innerHTML = `<label for=${id}>${label}</label><div>${inp}${help?`<div class=help>${help}</div>`:''}</div>`;
+      fs.append(row);
+      const el = row.querySelector('input:not([type=checkbox])');
+      if (el) el.value = type==='hex' ? '0x'+Number(v).toString(16) : (v ?? '');
+    });
+    F.append(fs);
+  });
+}
+function readCfg(){
+  const out = JSON.parse(JSON.stringify(CFG));
+  SCHEMA.forEach(([sec,,fields]) => fields.forEach(([k,,type,,opts]) => {
+    const el = $(`f_${sec}_${k}`); let v;
+    if (type==='bool') v = el.checked;
+    else if (type==='int') v = parseInt(el.value,10);
+    else if (type==='num') v = parseFloat(el.value);
+    else if (type==='hex') v = parseInt(el.value,16);
+    else if (type==='select' && typeof opts[0]==='number') v = Number(el.value);
+    else v = el.value;
+    out[sec][k] = (typeof v==='number' && isNaN(v)) ? CFG[sec][k] : v;
+  }));
+  return out;
+}
+$('saveBtn').onclick = async () => {
+  const c = readCfg();
+  if (c.detect.off_threshold_v >= c.detect.on_threshold_v) { toast('Off threshold must be below on threshold'); return; }
+  $('saveBtn').disabled = true;
+  const j = await post('/api/config', c);
+  $('saveBtn').disabled = false;
+  if (j.ok) { CFG = j.config; toast('Saved and applied'); $('saveNote').textContent = j.note || ''; }
+};
+
+// ---------- test helpers ----------
+let capF = null, capS = null;
+function cap(which){ if (!S || S.rssi_v==null) return toast('No RSSI reading');
+  if (which==='floor') capF = S.rssi_v; else capS = S.rssi_v;
+  $('capFloor').textContent = capF==null?'–':capF.toFixed(3)+' V';
+  $('capSig').textContent = capS==null?'–':capS.toFixed(3)+' V';
+  if (capF!=null && capS!=null) { const span = capS-capF;
+    $('capProp').textContent = span>0.05 ? `${(capF+span*0.7).toFixed(2)} / ${(capF+span*0.3).toFixed(2)} V` : 'carrier too close to floor'; } }
+async function applyThresh(){
+  if (capF==null||capS==null||capS-capF<=0.05) return toast('Capture floor and carrier first');
+  const c = await (await fetch('/api/config')).json(), span = capS-capF;
+  c.detect.on_threshold_v = +(capF+span*0.7).toFixed(3); c.detect.off_threshold_v = +(capF+span*0.3).toFixed(3);
+  const j = await post('/api/config', c); if (j.ok) toast('Thresholds applied');
+}
+async function calCap(n){
+  if (!S || S.rssi_v==null) return toast('No RSSI reading');
+  const dbm = parseFloat($('cal'+n).value); if (isNaN(dbm)) return toast('Enter the dBm level');
+  const c = await (await fetch('/api/config')).json();
+  c.rssi['cal_v'+n] = S.rssi_v; c.rssi['cal_dbm'+n] = dbm;
+  const j = await post('/api/config', c);
+  if (j.ok) $('calInfo').textContent = `Point ${n}: ${S.rssi_v.toFixed(3)} V = ${dbm} dBm saved.`;
+}
+</script>
+</body>
+</html>
