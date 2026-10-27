@@ -149,6 +149,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
   <div class="banner sim" id="simBanner">Simulation mode: RSSI and audio are synthetic. Use the Test tab to key a fake carrier.</div>
   <div class="banner" id="errBanner"></div>
   <div class="alarms" id="alarms"></div>
+  <div class="banner sim" id="clockBanner"></div>
 
   <!-- STATUS -->
   <section id="status" class="on">
@@ -242,7 +243,8 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
           <h3 style="margin:0">RSSI history</h3>
           <div class="row" id="hRange">
             <button class="btn sm" data-m="10">10 m</button><button class="btn sm pri" data-m="60">1 h</button>
-            <button class="btn sm" data-m="360">6 h</button><button class="btn sm" data-m="1440">24 h</button></div>
+            <button class="btn sm" data-m="360">6 h</button><button class="btn sm" data-m="1440">24 h</button>
+            <button class="btn sm" data-m="2880">48 h</button><button class="btn sm" data-m="10080">7 d</button></div>
         </div>
         <canvas id="histC" style="height:260px"></canvas>
         <div class="legend">
@@ -384,6 +386,18 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         </dl>
       </div>
       <div class="card need-admin">
+        <h3>System clock</h3>
+        <p class="muted" style="margin-top:0">Recordings, history, sessions and the audit log all rely on the Pi's clock. Once the network is airgapped there's no internet time; use a local NTP server (<code>install.sh --ntp</code>) or set the clock from this browser.</p>
+        <dl class="kv">
+          <dt>Pi time</dt><dd id="ckPi">–</dd>
+          <dt>This browser</dt><dd id="ckBr">–</dd>
+          <dt>Difference</dt><dd id="ckDiff">–</dd>
+          <dt>NTP</dt><dd id="ckNtp">–</dd>
+          <dt>Hardware RTC</dt><dd id="ckRtc">–</dd>
+        </dl>
+        <div class="row" style="margin-top:12px"><button class="btn pri" id="ckSet" onclick="setClock()">Set Pi clock from this browser</button></div>
+      </div>
+      <div class="card need-admin">
         <div class="row" style="justify-content:space-between"><h3 style="margin:0">Users</h3></div>
         <div class="tscroll"><table class="t" id="usersT"></table></div>
         <h3 style="margin-top:18px">Add user</h3>
@@ -417,7 +431,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'recs') loadRecs();
   if (b.dataset.tab === 'setup') loadCfg();
   if (b.dataset.tab === 'history') loadHist();
-  if (b.dataset.tab === 'access') loadAccess();
+  if (b.dataset.tab === 'access') { loadAccess(); loadClock(); }
   location.hash = b.dataset.tab;
 });
 
@@ -877,6 +891,31 @@ async function applySuggest(){
   c.rssi.threshold_mode = 'adaptive'; c.rssi.on_offset_v = hStats.suggest_on; c.rssi.off_offset_v = hStats.suggest_off;
   const j = await post('/api/config', c); if (j.ok) { CFG_R = j.config.rssi; toast('Adaptive offsets applied'); renderStats(); }
 }
+
+// ---------- clock ----------
+let CK = null, ckOffset = 0;
+async function loadClock(){
+  const t0 = Date.now(); const r = await fetch('/api/clock'); if (!r.ok) return; CK = await r.json();
+  const rtt = (Date.now() - t0) / 2000; ckOffset = CK.t + rtt - Date.now()/1000; renderClock();
+}
+function renderClock(){
+  if (!CK) return;
+  const off = ckOffset, bad = Math.abs(off) > 120 || CK.t < 1735689600;
+  const b = $('clockBanner'); b.style.display = bad ? 'block' : 'none';
+  if (bad) b.innerHTML = `Pi clock is ${Math.abs(off) > 86400 ? Math.round(Math.abs(off)/86400) + ' days' : Math.round(Math.abs(off)) + ' s'} ${off > 0 ? 'ahead of' : 'behind'} this browser.`
+    + (ME && ME.role === 'admin' ? ' Set it on the <a href="#access" onclick="document.querySelector(\'nav button[data-tab=access]\').click()" style="color:inherit">Access</a> tab.' : ' Ask an admin to set it.');
+  if (!$('ckPi')) return;
+  $('ckPi').textContent = fmtDT(Date.now()/1000 + off); $('ckBr').textContent = fmtDT(Date.now()/1000);
+  $('ckDiff').innerHTML = Math.abs(off) < 2 ? '<span class="pill g">in sync</span>' : `<span class="pill ${Math.abs(off) > 120 ? 'r' : 'a'}">${off > 0 ? '+' : ''}${off.toFixed(0)} s</span>`;
+  $('ckNtp').textContent = CK.ntp_synced == null ? 'unknown' : CK.ntp_synced ? 'synchronised' : (CK.ntp_enabled ? 'enabled, not synchronised' : 'off');
+  $('ckRtc').textContent = CK.rtc ? 'present' : 'none (time resets on power loss without NTP)';
+  $('ckSet').disabled = !CK.can_set; $('ckSet').title = CK.can_set ? '' : 'clock helper not installed (run install.sh)';
+}
+async function setClock(){
+  const j = await api('POST', '/api/clock', {t: Date.now()/1000});
+  if (j) { toast('Pi clock set'); loadClock(); }
+}
+loadClock(); setInterval(loadClock, 60000); setInterval(renderClock, 1000);
 
 // ---------- access ----------
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

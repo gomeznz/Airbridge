@@ -7,6 +7,7 @@ import asyncio
 import html
 import logging
 import os
+import subprocess
 import time
 from urllib.parse import urlparse
 
@@ -326,16 +327,60 @@ async def api_events(user=role("viewer")):
 # ---------- history ----------
 @app.get("/api/history")
 async def history(minutes: float = 60, user=role("viewer")):
-    secs = max(60, min(int(minutes * 60), 86400))
-    return engine.history.query(secs, time.time())
+    secs = max(60, min(int(minutes * 60), engine.history.keep))
+    return await asyncio.get_running_loop().run_in_executor(None, engine.history.query, secs, time.time())
 
 
 @app.get("/api/history/stats")
 async def history_stats(minutes: float = 360, user=role("viewer")):
-    secs = max(300, min(int(minutes * 60), 86400))
-    st = engine.history.stats(secs, time.time(), bool(config["rssi"].get("invert")))
+    secs = max(300, min(int(minutes * 60), engine.history.keep))
+    st = await asyncio.get_running_loop().run_in_executor(
+        None, engine.history.stats, secs, time.time(), bool(config["rssi"].get("invert")))
     st["window_min"] = secs // 60
     return st
+
+
+# ---------- system clock ----------
+SETCLOCK = "/usr/local/sbin/airbridge-setclock"
+
+
+def _clock_info():
+    synced = ntp = None
+    try:
+        out = subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized", "-p", "NTP"],
+                             capture_output=True, text=True, timeout=3).stdout
+        kv = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        synced, ntp = kv.get("NTPSynchronized") == "yes", kv.get("NTP") == "yes"
+    except Exception:
+        pass
+    return {"t": time.time(), "ntp_synced": synced, "ntp_enabled": ntp, "rtc": os.path.exists("/dev/rtc0"),
+            "can_set": os.path.exists(SETCLOCK)}
+
+
+@app.get("/api/clock")
+async def clock(user=role("viewer")):
+    return await asyncio.get_running_loop().run_in_executor(None, _clock_info)
+
+
+@app.post("/api/clock")
+async def clock_set(request: Request, user=role("admin")):
+    b = await request.json()
+    try:
+        t = int(float(b["t"]))
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "need t (unix seconds)")
+    before = time.time()
+    try:
+        r = subprocess.run(["sudo", "-n", SETCLOCK, str(t)], capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        raise HTTPException(501, "sudo not available")
+    if r.returncode != 0:
+        raise HTTPException(500, (r.stderr or r.stdout or "could not set the clock").strip()
+                            + " (is install.sh's clock helper installed?)")
+    audit(request, "clock_set", f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(t))} "
+                                f"(was {t - before:+.0f} s off)")
+    engine.event("info", f"system clock set from browser by {user['username']} ({t - before:+.0f} s)")
+    return _clock_info()
 
 
 # ---------- recordings ----------

@@ -1,4 +1,4 @@
-"""Long RSSI / detection history at 1 s resolution (24 h), saved to disk.
+"""Long RSSI / detection history at 1 s resolution (7 days), saved to disk.
 
 Each second stores: time, RSSI min/mean/max, carrier, transmitting,
 floor, effective on/off thresholds and the AF detector value. Used for
@@ -18,7 +18,7 @@ NAN = float("nan")
 
 
 class History:
-    def __init__(self, path, keep_s=86400):
+    def __init__(self, path, keep_s=7 * 86400):
         self.path = path
         self.keep = keep_s
         self.lock = threading.Lock()
@@ -134,9 +134,14 @@ class History:
             return
         try:
             z = np.load(self.path)
-            if z["data"].shape == self.data.shape:
-                self.data[:] = z["data"]
-                self.data_t[:] = z["t"]
-                self.n = int(z["n"][0])
+            data, tt, n = z["data"], z["t"], int(z["n"][0])
+            if data.shape == self.data.shape:
+                self.data[:], self.data_t[:], self.n = data, tt, n
+            elif data.shape[1] == self.data.shape[1]:
+                # saved with a different length: replay the newest rows in time order
+                old = data.shape[0]
+                m = min(n, old, self.keep)
+                idx = np.arange(n - m, n) % old
+                self.data[:m], self.data_t[:m], self.n = data[idx], tt[idx], m
         except Exception as e:
             log.warning("history load: %s", e)
