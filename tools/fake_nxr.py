@@ -34,8 +34,13 @@ def hdrs(msg):
     return head[0], out, msg.split("\r\n\r\n", 1)[1] if "\r\n\r\n" in msg else ""
 
 
+def pkt_copy(b):
+    return bytes(b)
+
+
 class Call:
     def __init__(self, args, call_id):
+        self.dest = None
         self.args = args
         self.rtp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rtp.bind(("0.0.0.0", 0))
@@ -68,6 +73,8 @@ class Call:
             self.packets += 1
             if self.first_pkt is None:
                 self.first_pkt = time.time()
+            if self.args.echo and pt in (0, 8) and self.dest:
+                threading.Timer(self.args.echo, self._echo, args=(pkt_copy(data),)).start()
             if pt == 0:
                 w.writeframes(ulaw_decode(payload).tobytes())
             elif pt == 8:
@@ -104,6 +111,12 @@ class Call:
                 time.sleep(max(0, t0 + (n + 1) * 0.02 - time.monotonic()))
         threading.Thread(target=run, daemon=True).start()
 
+    def _echo(self, pkt):
+        try:
+            self.rtp.sendto(pkt, self.dest)
+        except OSError:
+            pass
+
     def stop(self):
         self.alive = False
         time.sleep(0.6)
@@ -119,6 +132,7 @@ def main():
     ap.add_argument("--no-dtmf", action="store_true", help="omit telephone-event from SDP")
     ap.add_argument("--reject", type=int, default=0, help="reject INVITEs with this status")
     ap.add_argument("--talkback", default="", help="DELAY,SECS: reply with audio after answering")
+    ap.add_argument("--echo", type=float, default=0, help="echo received audio back after this many seconds (an NXDN parrot)")
     args = ap.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -170,6 +184,9 @@ def main():
             time.sleep(0.4)
             c = Call(args, cid)
             m = re.search(r"c=IN IP4 (\S+)", body)
+            mp0 = re.search(r"m=audio (\d+)", body)
+            if m and mp0:
+                c.dest = (m.group(1), int(mp0.group(1)))
             sdp = ("v=0\r\no=nxr 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\n"
                    f"m=audio {c.port} RTP/AVP {pt}{'' if args.no_dtmf else ' 101'}\r\n"
                    f"a=rtpmap:{pt} {args.codec}/8000\r\n"

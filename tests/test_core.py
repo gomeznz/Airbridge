@@ -296,3 +296,27 @@ def test_version_history_records_only_changes(tmp_path):
     prev, changed = h.record(b, 3)
     assert changed and prev["version"] == "0.6.0"
     assert [x["version"] for x in h.load()] == ["0.6.0", "0.7.0"]
+
+
+# ---------- delay measurement ----------
+def test_tone_onset_detection_timing():
+    from airbridge.latency import find_tone_onset, tone_burst_frames
+    lead, burst, tail = tone_burst_frames()
+    rng = np.random.default_rng(3)
+    t0, log = 100.0, []
+    frames = [np.zeros(160, np.int16)] * 30 + burst + tail          # tone starts 600 ms in
+    for i, f in enumerate(frames):
+        noisy = np.clip(f.astype(np.int32) + rng.normal(0, 100, 160), -32768, 32767).astype(np.int16)
+        log.append((t0 + (i + 1) * 0.02, noisy))                     # arrival = end of frame
+    onset = find_tone_onset(log, t0)
+    assert onset is not None and abs(onset - (t0 + 0.600)) < 0.025
+
+
+def test_tone_onset_ignores_noise_and_speechlike():
+    from airbridge.latency import find_tone_onset
+    rng = np.random.default_rng(4)
+    t = np.arange(160) / 8000
+    log = [(i * 0.02, (rng.normal(0, 3000, 160)).astype(np.int16)) for i in range(50)]
+    log += [(1 + i * 0.02, (8000 * (np.sin(2 * np.pi * 440 * t) + np.sin(2 * np.pi * 1300 * t))).astype(np.int16))
+            for i in range(50)]
+    assert find_tone_onset(log, 0) is None

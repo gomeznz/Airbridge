@@ -36,6 +36,7 @@ MIGRATIONS = {
     "peak_dbfs": "REAL",
     "clips": "INTEGER",
     "alarms": "TEXT",
+    "lag_ms": "REAL",                     # how far behind live the audio was delivered
 }
 
 

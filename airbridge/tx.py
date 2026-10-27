@@ -90,6 +90,7 @@ class TxController:
         self.state = LEAD
         self._t = now + float(self.cfg["ptt_lead_ms"]) / 1000
         self.key_time = now
+        self._lead_start = now - len(self.buf) * FRAME / 8000.0   # first queued audio arrived about here
         self.stats = OverStats()
         self.hooks.burst_start("tx")
         self.hooks.event("tx", "PTT keyed (NXR audio)")
@@ -153,6 +154,9 @@ class TxController:
         if self.state == LEAD:
             if now >= self._t:
                 self.state = TX
+                lag_hook = getattr(self.hooks, "burst_lag", None)
+                if lag_hook:
+                    lag_hook((now - self._lead_start) * 1000)   # oldest queued audio starts playing now
             return SILENCE
 
         if self.state == TX:

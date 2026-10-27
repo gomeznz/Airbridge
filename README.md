@@ -163,6 +163,22 @@ SIP connected 12s         call state; IN for calls from the NXR; FAIL + reason
 
 The Status page shows a live mirror of the display, so you can check it in simulation or remotely. The backlight can be always on, always off, or *auto*: lit while there's activity and off after a timeout. If the display is unplugged, AirBridge keeps running and reconnects every 10 s. Settings are in Setup → *Front panel LCD*.
 
+## Path delay
+
+AirBridge measures how far behind live the audio is delivered, every time:
+- **Airband → NXR:** typically about 1.3 s for a new call, or about 2.9 s when the group is selected by DTMF. On a call that's already open, it's about 0.9 s.
+- **NXR → airband:** about 0.25 s (jitter buffer, PTT lead and sound-card output).
+
+The Status page shows the latest figures, and every recording stores its own delay. The NXR's own NXDN processing adds to both. To shorten airband → NXR, the most effective change is dialling the group as the *number* instead of sending it as DTMF. After that, lower *Forwarded pre-roll* and *Attack*.
+
+**Delay test** (Test tab, operator or admin) measures:
+- SIP ping round trip;
+- call setup and DTMF time;
+- the delay AirBridge adds in each direction;
+- an **echo round trip**. AirBridge sends a 1 kHz tone burst and times its return to ±20 ms. This needs something on the NXDN side to echo the audio back, such as an NXDN radio set up as a parrot on the group.
+
+NXR audio is never put on air during the test. To try it on the bench, run `tools/fake_nxr.py --echo 0.45`.
+
 ## Carrier detection sources
 
 Pick any combination in Setup → *Trigger sources*. *Combine* = **any** fires on whichever source sees a carrier first. **all** requires every selected source to agree, which is useful for rejecting false triggers.

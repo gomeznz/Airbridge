@@ -420,6 +420,22 @@ async def test_call(request: Request, seconds: float = 5.0, user=role("operator"
     return {"ok": True}
 
 
+@app.post("/api/test/delay")
+async def test_delay(request: Request, user=role("operator")):
+    try:
+        if engine.delay_test.get("state") == "running":
+            raise RuntimeError("a delay test is already running")
+        if not engine.ua:
+            raise RuntimeError("SIP is disabled or not running")
+        if engine.call and engine.call.state in ("calling", "trying", "ringing", "connected"):
+            raise RuntimeError("a call is already in progress")
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    audit(request, "delay_test")
+    engine.call_task = asyncio.create_task(engine.run_delay_test())
+    return {"ok": True}
+
+
 @app.post("/api/test/hangup")
 async def test_hangup(request: Request, user=role("operator")):
     await engine.hangup()

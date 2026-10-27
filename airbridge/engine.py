@@ -21,10 +21,11 @@ from . import afmeter, hardware, version
 from .audio import AudioSource, tone_frames
 from .detector import ACTIVE, ATTACK, AfDetector, CarrierDetector, sources_of, volts_to_dbm
 from .history import History
+from . import latency
 from .k5tra import K5tra
 from .lcd import Lcd
 from .recorder import OverRecording, Store
-from .sip import SipUA
+from .sip import Mark as sip_mark, SipUA
 from .tx import TxController, tone_burst
 
 log = logging.getLogger("engine")
@@ -83,6 +84,9 @@ class Engine:
         self.alarms = {}                 # name -> since
         self._no_audio_since = None
         self.burst = None                # current TX burst record
+        self.last_lag = {"rx": None, "tx": None, "setup_ms": None, "dtmf_ms": None}
+        self.delay_test = getattr(self, "delay_test", None) or {"state": "idle"}
+        self._dt_listen = False
         self.tx_rec = None
 
         self.ua = None
@@ -196,6 +200,9 @@ class Engine:
         call = self._call_live()
         if not call:
             return None
+        if self._dt_listen:                  # delay test: never transmit the echo on airband
+            call.rx_frames.clear()
+            return None
         out = []
         while call.rx_frames:
             out.append(call.rx_frames.popleft())
@@ -225,6 +232,13 @@ class Engine:
         if c["tx"]["record"] and c["record"]["enabled"]:
             self.tx_rec = OverRecording(self.store, oid, now, c["record"]["format"])
 
+    def burst_lag(self, buffered_ms):
+        """Called when audio starts playing: receive buffer + PTT lead + sound-card output."""
+        lag = round(buffered_ms + self.audio.out_latency_ms)
+        self.last_lag["tx"] = lag
+        if self.burst:
+            self.burst["lag"] = lag
+
     def burst_frame(self, frame):
         if self.tx_rec:
             self.tx_rec.write(frame)
@@ -241,7 +255,8 @@ class Engine:
             self.event("alarm", a)
         self.store.update(b["id"], ended=now, duration=round(now - b["started"], 2), forward=result,
                           forward_detail=detail or ("TX test tone" if b.get("local") else None), avg_dbfs=res.get("avg_dbfs"), peak_dbfs=res.get("peak_dbfs"),
-                          clips=res.get("clips"), alarms=json.dumps(alarms) if alarms else None)
+                          clips=res.get("clips"), alarms=json.dumps(alarms) if alarms else None,
+                          lag_ms=b.get("lag"))
         rec, self.tx_rec = self.tx_rec, None
         if rec:
             threading.Thread(target=rec.close, daemon=True).start()
@@ -345,7 +360,9 @@ class Engine:
             # an open call (outbound in reply-hold, or inbound from the NXR): use it
             self.over["forward"] = True
             call.frames.extend(pre)
-            self.store.update(oid, forward="sent",
+            lag = call.buffered_ms()
+            self.last_lag["rx"] = lag
+            self.store.update(oid, forward="sent", lag_ms=lag,
                               forward_detail="on inbound call" if call.direction == "in" else "joined open call")
             return
         elif call and call.state in ("calling", "trying", "ringing"):
@@ -423,7 +440,9 @@ class Engine:
                         self.over["forward"] = False
                 return
             await asyncio.sleep(float(sc["post_answer_delay_ms"]) / 1000)
+            t_d = time.time()
             await self._send_dtmf(call)
+            dtmf_ms = round((time.time() - t_d) * 1000) if (sc["dtmf_digits"] or "").strip() else 0
             with self._lock:
                 if test_frames is not None:
                     call.frames.extend(test_frames)
@@ -431,8 +450,14 @@ class Engine:
                     call.frames.extend(self.pending)
                     self.pending.clear()
                 self.forwarding = True
+                lag = call.buffered_ms() if test_frames is None else None
+            self.last_lag.update(setup_ms=call.setup_ms, dtmf_ms=dtmf_ms)
+            if lag is not None:
+                self.last_lag["rx"] = lag
+                self.event("sip", f"streaming to NXR {lag / 1000:.2f} s behind live "
+                                  f"(setup {call.setup_ms} ms{f', DTMF {dtmf_ms} ms' if dtmf_ms else ''})")
             for oid in oids:
-                self.store.update(oid, forward="sent", forward_detail=None)
+                self.store.update(oid, forward="sent", forward_detail=None, lag_ms=lag)
 
             # keep the call while airband audio flows, NXR audio flows, or within the reply window
             max_s = float(sc["max_call_s"])
@@ -512,6 +537,70 @@ class Engine:
             self.last_call_end = time.time()
 
     # ---------- test / manual ----------
+    async def run_delay_test(self, listen_s=10.0):
+        """Measure every part of the path; time the round trip if the NXR side echoes audio."""
+        if not self.ua:
+            raise RuntimeError("SIP is disabled or not running")
+        if self.call and self.call.state in LIVE_CALL:
+            raise RuntimeError("a call is already in progress")
+        c, sc = self.config, self.config["sip"]
+        r = {"state": "running", "started": time.time(), "step": "SIP ping"}
+        self.delay_test = r
+        self.event("info", "delay test started")
+        try:
+            pings = [x for x in [await self.ua.ping() for _ in range(3)] if x is not None]
+            r["ping_ms"] = round(sum(pings) / len(pings), 1) if pings else None
+            r["ping_note"] = None if pings else "NXR did not answer SIP OPTIONS"
+            r["step"] = "calling"
+            call = await self.ua.place_call(deque(), self._call_state)
+            if not call:
+                raise RuntimeError(f"call failed: {self.ua.call.error if self.ua.call else 'unknown'}")
+            r["setup_ms"] = call.setup_ms
+            await asyncio.sleep(float(sc["post_answer_delay_ms"]) / 1000)
+            t_d = time.time()
+            await self._send_dtmf(call)
+            r["dtmf_ms"] = round((time.time() - t_d) * 1000) if (sc["dtmf_digits"] or "").strip() else 0
+            r["step"] = "sending tone, listening for echo"
+            self._dt_listen = True
+            call.rx_log = []
+            lead, burst, tail = latency.tone_burst_frames()
+            mark = sip_mark()
+            call.frames.extend(lead)
+            call.frames.append(mark)
+            call.frames.extend(burst + tail)
+            deadline = time.time() + listen_s
+            onset = None
+            while time.time() < deadline and call.state == "connected":
+                await asyncio.sleep(0.25)
+                if mark.t:
+                    onset = latency.find_tone_onset(list(call.rx_log), mark.t)
+                    if onset:
+                        break
+            r["echo_ms"] = round((onset - mark.t) * 1000) if onset and mark.t else None
+            await call.hangup()
+        except Exception as e:
+            r["error"] = str(e)
+            log.warning("delay test: %s", e)
+            if self.call and self.call.state == "connected":
+                await self.call.hangup()
+        finally:
+            self._dt_listen = False
+            if self.call:
+                self.call.rx_log = None
+            self.last_call_end = time.time()
+        # the parts AirBridge itself adds (the NXR's own NXDN processing is extra)
+        attack, fwd = float(c["detect"]["attack_ms"]), float(sc["forward_preroll_ms"])
+        post = float(sc["post_answer_delay_ms"])
+        if r.get("setup_ms") is not None:
+            r["rx_new_call_ms"] = round(attack + fwd + r["setup_ms"] + post + (r.get("dtmf_ms") or 0))
+        r["rx_open_call_ms"] = round(attack + fwd)
+        r["tx_ms"] = round(float(c["tx"]["jitter_ms"]) + float(c["tx"]["ptt_lead_ms"]) + self.audio.out_latency_ms)
+        r["state"] = "done"
+        r["finished"] = time.time()
+        self.event("info", "delay test finished" + (f": echo round trip {r['echo_ms']} ms" if r.get("echo_ms")
+                                                     else " (no echo detected)" if not r.get("error") else f": {r['error']}"))
+        return r
+
     async def test_call(self, seconds=5.0):
         if not self.ua:
             raise RuntimeError("SIP is disabled or not running")
@@ -598,6 +687,8 @@ class Engine:
             },
             "alarms": sorted(self.alarms),
             "relay": self.relay.state,
+            "lag": self.last_lag,
+            "delay_test": self.delay_test,
             "lcd": self.lcd.mirror(),
             "relay_override": self._relay_override,
             "tx": {**self.tx.snapshot(), "hid": self.k5.path, "rx_buffer_ms":
@@ -613,6 +704,7 @@ class Engine:
                 "connected_s": round(now - call.answered_at, 1) if call and call.answered_at and call.state == "connected" else None,
                 "buffer_ms": round(call.buffered_ms() if call and call.state == "connected" else len(self.pending) * 20),
                 "rx_packets": call.rx_packets if call else 0,
+                "setup_ms": call.setup_ms if call else self.last_lag["setup_ms"],
                 "last_error": self.ua.last_error if self.ua else None,
             },
             "errors": self._hw_errors(),

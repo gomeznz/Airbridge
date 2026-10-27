@@ -42,6 +42,7 @@ class AudioSource:
         self._in_gain = 10 ** (float(cfg["gain_db"]) / 20)
         self._out_gain = 10 ** (float(cfg.get("out_gain_db", 0.0)) / 20)
         self.xruns = 0
+        self.out_latency_ms = 0.0
 
     # ---------- device ----------
     def _pick_device(self, sd):
@@ -65,6 +66,7 @@ class AudioSource:
         self._stop.clear()
         if self.sim:
             self.device_name = "simulated"
+            self.out_latency_ms = 20.0
             self._thread = threading.Thread(target=self._sim_loop, daemon=True)
             self._thread.start()
             return
@@ -89,6 +91,11 @@ class AudioSource:
             else:
                 self._stream = sd.InputStream(channels=1, callback=self._in_cb, **kw)
             self._stream.start()
+            try:
+                lat = self._stream.latency
+                self.out_latency_ms = 1000 * float(lat[1] if isinstance(lat, (tuple, list)) else lat)
+            except Exception:
+                self.out_latency_ms = 0.0
             self.device_name = dev["name"] + ("" if out_ch else " (RX only)")
             log.info("audio on %s @ %d Hz, out channels %d", dev["name"], rate, out_ch)
         except Exception as e:

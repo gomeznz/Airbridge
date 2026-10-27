@@ -3,6 +3,19 @@
 All notable changes to AirBridge. Versions follow [semantic versioning](https://semver.org/);
 each release is tagged in git (`v0.7.0` etc.). The version number lives in `airbridge/__init__.py`.
 
+## [0.8.0] - 2026-10-28
+### Added
+- Path delay is measured on every over (airband → NXR) and every NXR burst (NXR → airband). It is shown on the
+  Status page and stored with each recording.
+- Call setup and DTMF times are measured on every call.
+- Delay test on the Test tab: SIP ping, call setup, DTMF, the delay AirBridge adds in each direction, and an
+  echo round trip using a 1 kHz tone burst, when something on the NXDN side echoes it back. NXR audio is never
+  transmitted on airband during the test.
+- `tools/fake_nxr.py --echo SECONDS`, which simulates an NXDN parrot for bench testing.
+### Changed
+- Desktop layout: the status grid packs without gaps, settings are in two columns, and each recording is on one row.
+- Alarm and TX events are coloured; alarms from the TX test tone are labelled as such.
+
 ## [0.7.0] - 2026-10-28
 ### Added
 - Version tracking. The version and build are shown in the web footer, in Access → About, on the LCD
@@ -50,6 +63,7 @@ each release is tagged in git (`v0.7.0` etc.). The version number lives in `airb
 - First release: RSSI carrier detection (ADS1115), relay output, recording with pre-roll, direct
   SIP to the NXR-1800 (no PBX), and a web status, recordings and setup page.
 
+[0.8.0]: https://github.com/gomeznz/Airbridge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gomeznz/Airbridge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gomeznz/Airbridge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gomeznz/Airbridge/compare/v0.4.0...v0.5.0

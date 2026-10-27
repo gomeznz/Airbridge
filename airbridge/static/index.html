@@ -210,6 +210,7 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <dl class="kv" style="margin-top:12px">
           <dt>Receive buffer</dt><dd id="txBuf">–</dd>
           <dt>Last burst</dt><dd id="txLast">–</dd>
+          <dt>NXR → air delay</dt><dd id="lagTx">–</dd>
           <dt>K5TRA HID</dt><dd id="txHid">–</dd>
         </dl>
         <div class="row need-op" style="margin-top:10px"><button class="btn sm dng" onclick="post('/api/ptt/release')">Release PTT</button></div>
@@ -235,6 +236,8 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
           <dt>Codec</dt><dd id="sipCodec">–</dd>
           <dt>Connected</dt><dd id="sipUp">–</dd>
           <dt>Buffer</dt><dd id="sipBuf">–</dd>
+          <dt>Call setup</dt><dd id="sipSetup">–</dd>
+          <dt>Air → NXR delay</dt><dd id="lagRx">–</dd>
           <dt id="regRow">Register</dt><dd id="sipReg">–</dd>
         </dl>
         <div class="muted" id="sipErr" style="margin-top:8px"></div>
@@ -362,6 +365,14 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <div class="row"><input type="number" id="tcSecs" value="5" min="1" max="30" style="width:90px"> <span class="muted">seconds</span>
           <button class="btn pri" onclick="post('/api/test/call?seconds='+tcSecs.value)">Place test call</button>
           <button class="btn dng" onclick="post('/api/test/hangup')">Hang up</button></div>
+      </div>
+      <div class="card need-op">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Delay test</h3>
+          <button class="btn pri" id="dtBtn" onclick="post('/api/test/delay')">Run delay test</button></div>
+        <p class="muted">Pings the NXR, places a call (with the configured DTMF), sends a 1 kHz tone burst and listens 10 s for it to come back.
+          A true round trip needs something on the NXDN side to echo it, e.g. an NXDN radio set up as a parrot / echo on the group. Without one, you still get every part AirBridge adds.
+          NXR audio is never transmitted on airband during the test.</p>
+        <div class="tscroll"><table class="t" id="dtT"></table></div>
       </div>
       <div class="card s6 need-op">
         <h3>Relay</h3>
@@ -588,6 +599,9 @@ function render(s){
   $('sipBuf').textContent = sp.buffer_ms ? sp.buffer_ms+' ms' : '–';
   const regShow = sp.registered !== null; $('regRow').style.display = $('sipReg').style.display = regShow ? '' : 'none';
   $('sipReg').innerHTML = sp.registered ? '<span class="pill g">yes</span>' : '<span class="pill r">no</span>';
+  const ms = v => v == null ? '–' : (v >= 1000 ? (v/1000).toFixed(2) + ' s' : Math.round(v) + ' ms');
+  $('sipSetup').textContent = ms(sp.setup_ms); $('lagRx').textContent = ms(s.lag.rx); $('lagTx').textContent = ms(s.lag.tx);
+  renderDelay(s.delay_test);
   $('sipErr').textContent = sp.reg_error || (sp.last_error ? 'Last error: ' + sp.last_error : '');
 }
 
@@ -667,7 +681,7 @@ async function loadRecs(){
     const dir = r.direction === 'tx' ? '<span class="dir tx">NXR → AIR</span>' : '<span class="dir rx">AIR → NXR</span>';
     const al = r.alarms ? JSON.parse(r.alarms) : [];
     d.innerHTML = `<div><div class="t">${dir}${fmtDT(r.started)}</div>
-      <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.avg_dbfs!=null?' · avg '+r.avg_dbfs.toFixed(1)+' dBFS':''}${r.peak_v!=null?' · RSSI '+r.peak_v.toFixed(2)+' V':''}</div>
+      <div class="meta">${r.duration!=null ? r.duration.toFixed(1)+' s' : 'in progress'}${r.avg_dbfs!=null?' · avg '+r.avg_dbfs.toFixed(1)+' dBFS':''}${r.lag_ms!=null?' · delay '+(r.lag_ms/1000).toFixed(2)+' s':''}${r.peak_v!=null?' · RSSI '+r.peak_v.toFixed(2)+' V':''}</div>
       ${al.length ? `<div class="meta" style="color:var(--red)">⚠ ${al.join(' · ')}</div>` : ''}</div>
       <div style="text-align:right"><span class="pill ${cls}" title="${r.forward_detail||''}">${label}</span><br>
       <button class="btn sm dng need-op" style="margin-top:6px">Delete</button></div>
@@ -929,6 +943,27 @@ async function applySuggest(){
   const c = await (await fetch('/api/config')).json();
   c.rssi.threshold_mode = 'adaptive'; c.rssi.on_offset_v = hStats.suggest_on; c.rssi.off_offset_v = hStats.suggest_off;
   const j = await post('/api/config', c); if (j.ok) { CFG_R = j.config.rssi; toast('Adaptive offsets applied'); renderStats(); }
+}
+
+// ---------- delay test ----------
+function renderDelay(d){
+  if (!d || !$('dtT')) return;
+  const ms = v => v == null ? '–' : (v >= 1000 ? (v/1000).toFixed(2) + ' s' : Math.round(v) + ' ms');
+  $('dtBtn').disabled = d.state === 'running';
+  $('dtBtn').textContent = d.state === 'running' ? 'Running: ' + (d.step || '') + '…' : 'Run delay test';
+  if (d.state === 'idle') { $('dtT').innerHTML = '<tr><td class="muted">Not run yet.</td></tr>'; return; }
+  const row = (k, v, note) => `<tr><td>${k}</td><td class="m" style="text-align:right">${v}</td><td class="muted">${note || ''}</td></tr>`;
+  $('dtT').innerHTML = '<tr><th>Measurement</th><th style="text-align:right">Result</th><th></th></tr>'
+    + (d.error ? row('<span style="color:var(--red)">Error</span>', '', esc(d.error)) : '')
+    + row('SIP ping (OPTIONS round trip)', ms(d.ping_ms), d.ping_note || 'network + NXR SIP stack')
+    + row('Call setup (INVITE → answer)', ms(d.setup_ms), 'measured')
+    + row('DTMF group selection', d.dtmf_ms ? ms(d.dtmf_ms) : 'none', d.dtmf_ms ? 'measured; dial the group as the number instead to save this' : '')
+    + row('<b>Air → NXR, new call</b>', '<b>' + ms(d.rx_new_call_ms) + '</b>', 'attack + forwarded pre-roll + setup + post-answer + DTMF')
+    + row('<b>Air → NXR, open call</b>', '<b>' + ms(d.rx_open_call_ms) + '</b>', 'attack + forwarded pre-roll')
+    + row('<b>NXR → air</b>', '<b>' + ms(d.tx_ms) + '</b>', 'jitter buffer + PTT lead + sound-card output')
+    + row('<b>Echo round trip</b>', '<b>' + (d.echo_ms != null ? ms(d.echo_ms) : (d.state === 'running' ? '…' : 'no echo')) + '</b>',
+          d.echo_ms != null ? 'Pi → NXR → NXDN → echo → NXR → Pi, ±20 ms' : (d.state === 'running' ? '' : 'nothing echoed the tone back (needs an NXDN parrot on the group)'))
+    + (d.finished ? row('Run at', fmtDT(d.finished), '') : '');
 }
 
 // ---------- version ----------

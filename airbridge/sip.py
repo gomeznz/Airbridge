@@ -133,6 +133,13 @@ def digest(chal, method, uri, user, pw):
     return out
 
 
+class Mark:
+    """Placed in a call's frame queue; records when the audio after it is sent."""
+
+    def __init__(self):
+        self.t = None
+
+
 class _Proto(asyncio.DatagramProtocol):
     def __init__(self, ua):
         self.ua = ua
@@ -359,6 +366,22 @@ class SipUA:
                 log.warning("register: %s", e)
                 await asyncio.sleep(30)
 
+    async def ping(self):
+        """SIP OPTIONS to the repeater; returns round-trip ms, or None if no reply."""
+        cfg = self.cfg
+        uri = f"sip:{cfg['target_host']}:{cfg['target_port']}"
+        call_id, tag = _rand(16) + "@airbridge", _rand()
+        def build(br):
+            return "\r\n".join([
+                f"OPTIONS {uri} SIP/2.0",
+                f"Via: SIP/2.0/UDP {self.local_ip}:{cfg['local_port']};branch={br};rport",
+                "Max-Forwards: 70", f"From: <sip:{cfg['local_user']}@{self.local_ip}>;tag={tag}",
+                f"To: <{uri}>", f"Call-ID: {call_id}", "CSeq: 1 OPTIONS",
+                "Accept: application/sdp", "User-Agent: AirBridge", "Content-Length: 0", "", ""])
+        t0 = time.monotonic()
+        resp, _ = await self.transact(build, "OPTIONS", final_timeout=3)
+        return round((time.monotonic() - t0) * 1000, 1) if resp is not None else None
+
     # ---------- calls ----------
     async def place_call(self, frames: deque, on_state=None):
         if self.call and self.call.state not in ("ended", "failed"):
@@ -405,6 +428,7 @@ class SipCall:
         self._last_invite_ack = None
         self._gain = 10 ** (float(self.cfg["send_gain_db"]) / 20)
         self.packets_sent = 0
+        self.rx_log = None              # list of (arrival time, frame) while a delay test listens
 
     # ----- helpers -----
     def _set(self, st, err=None):
@@ -688,7 +712,11 @@ class SipCall:
                     continue
 
                 while len(pending) < spp and self.frames:
-                    pending = np.concatenate([pending, self.frames.popleft()])
+                    item = self.frames.popleft()
+                    if isinstance(item, Mark):
+                        item.t = time.time() + len(pending) / 8000.0
+                        continue
+                    pending = np.concatenate([pending, item])
                 if len(pending) >= spp:
                     chunk, pending = pending[:spp], pending[spp:]
                     if self._gain != 1.0:
@@ -731,13 +759,22 @@ class SipCall:
                 pt = pkt[1] & 0x7F
                 self.rx_packets += 1
                 if pt == self.pt and payload:
-                    self.rx_frames.append(self.dec(payload))
+                    f = self.dec(payload)
+                    self.rx_frames.append(f)
+                    if self.rx_log is not None:
+                        self.rx_log.append((time.time(), f))
                     self.last_rx = time.time()
         except (BlockingIOError, OSError):
             pass
 
     def buffered_ms(self):
-        return sum(len(f) for f in list(self.frames)) / 8
+        return sum(len(f) for f in list(self.frames) if not isinstance(f, Mark)) / 8
+
+    @property
+    def setup_ms(self):
+        if self.started and self.answered_at:
+            return round((self.answered_at - self.started) * 1000)
+        return None
 
     async def hangup(self):
         if self.state != "connected":
