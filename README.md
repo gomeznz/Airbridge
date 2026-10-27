@@ -56,22 +56,6 @@ sudo ./install.sh
 
 Then open `http://<pi-ip>:8080`, go to **Setup**, and enter the NXR's IP address and SIP details. Logs: `journalctl -u airbridge -f`.
 
-## Installation, commissioning and airgapped operation
-
-The installer needs internet access, for apt and pip. Once installed, AirBridge needs **no internet at all**: the web page loads nothing from outside, and SIP and the NXR are on the local network. The intended flow is:
-
-1. Install while the Pi is online. `sudo ./install.sh` handles both a fresh install and an update.
-2. Commission it, and use the **History** tab to watch the RSSI floor and traffic over a 48-hour run. History keeps 7 days at 1 s resolution, with 48 h and 7 d views.
-3. Move it onto the airgapped network.
-
-**The clock after airgapping.** With no internet there's no public NTP, and a Pi 4 has no hardware clock. Without a time source, the clock falls back to the last saved time after a power cut. Timestamps on recordings, history, sessions and the audit log all depend on it. Options, best first:
-
-- A local NTP server on the airgapped network: `sudo ./install.sh --ntp <server-ip>`.
-- A Pi 5 with an RTC battery fitted.
-- **Access → System clock → Set Pi clock from this browser.** This is admin only and is logged in the audit log.
-
-A banner warns every user when the Pi's clock is more than 2 minutes away from their browser's.
-
 ## Access control
 
 The web panel requires a sign-in. Each user has one role:
