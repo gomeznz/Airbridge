@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import hardware
+from . import __version__, hardware, version
 from .auth import RANK, ROLES, Auth, AuthError, client_ip, ip_allowed
 from .config import DATA_DIR, Config
 from .engine import Engine
@@ -24,7 +24,7 @@ HERE = os.path.dirname(__file__)
 config = Config()
 engine = Engine(config, DATA_DIR)
 auth = Auth(DATA_DIR, config["web"])
-app = FastAPI(title="AirBridge", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="AirBridge", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
 COOKIE = "ab_session"
 PUBLIC = {"/login", "/setup", "/favicon.svg"}
@@ -255,6 +255,11 @@ async def _startup():
         c["web"] = {**c["web"], "password": ""}            # never keep the plain-text password
         config.save(c)
     await engine.start()
+    if engine.upgraded:
+        prev = engine.prev_build
+        what = (f"{'v' + prev['version'] if prev else 'first install'} -> {version.label(engine.build)}")
+        auth.audit("system", None, "version_change", what)
+        engine.event("info", f"version change: {what}")
     if note:
         log.warning(note)                     # the setup code goes to the journal only, never the web UI
         engine.event("info", "no users yet: create the first admin at /setup" if auth.setup_code else note)
@@ -336,6 +341,12 @@ async def history_stats(minutes: float = 360, user=role("viewer")):
     st = engine.history.stats(secs, time.time(), bool(config["rssi"].get("invert")))
     st["window_min"] = secs // 60
     return st
+
+
+# ---------- version ----------
+@app.get("/api/version")
+async def api_version(user=role("viewer")):
+    return {**engine.build, "label": version.label(engine.build), "history": engine.versions.load()[::-1]}
 
 
 # ---------- recordings ----------

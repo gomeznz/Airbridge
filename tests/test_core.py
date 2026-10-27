@@ -273,3 +273,26 @@ def test_hd44780_4bit_protocol():
     assert w[0] == 0xC0 | lcdmod.EN | lcdmod.BL and w[1] == 0xC0 | lcdmod.BL
     assert w[2] == 0x00 | lcdmod.EN | lcdmod.BL and w[3] == 0x00 | lcdmod.BL
     assert w[4] == 0x40 | lcdmod.RS | lcdmod.EN | lcdmod.BL and w[6] == 0x10 | lcdmod.RS | lcdmod.EN | lcdmod.BL
+
+
+# ---------- version ----------
+def test_version_is_semver_and_matches_changelog():
+    import os
+    import re
+    from airbridge import __version__
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "CHANGELOG.md")) as f:
+        assert f"## [{__version__}]" in f.read(), "add a CHANGELOG entry for the new version"
+
+
+def test_version_history_records_only_changes(tmp_path):
+    from airbridge.version import VersionHistory
+    h = VersionHistory(str(tmp_path))
+    a = {"version": "0.6.0", "commit": "aaa", "describe": "v0.6.0"}
+    b = {"version": "0.7.0", "commit": "bbb", "describe": "v0.7.0"}
+    assert h.record(a, 1) == (None, True)
+    assert h.record(a, 2)[1] is False                 # restart of the same build: not logged again
+    prev, changed = h.record(b, 3)
+    assert changed and prev["version"] == "0.6.0"
+    assert [x["version"] for x in h.load()] == ["0.6.0", "0.7.0"]

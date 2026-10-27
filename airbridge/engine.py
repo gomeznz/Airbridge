@@ -17,7 +17,7 @@ import threading
 import time
 from collections import deque
 
-from . import afmeter, hardware
+from . import afmeter, hardware, version
 from .audio import AudioSource, tone_frames
 from .detector import ACTIVE, ATTACK, AfDetector, CarrierDetector, sources_of, volts_to_dbm
 from .history import History
@@ -45,6 +45,9 @@ class Engine:
         self._relay_override = None
         # lives across engine restarts (settings saves) and is saved to disk
         self.history = History(os.path.join(data_dir, "history.npz"))
+        self.build = version.build_info()
+        self.versions = version.VersionHistory(data_dir)
+        self.prev_build, self.upgraded = self.versions.record(self.build)
 
     # ---------- lifecycle ----------
     async def start(self):
@@ -101,9 +104,13 @@ class Engine:
         self.poll_thread.start()
         self._housekeeping = asyncio.create_task(self._housekeep())
         self._today_cache = (0.0, {})
-        self.lcd = Lcd(c["lcd"], sim, self.lcd_snapshot)
+        splash = None if getattr(self, "_splashed", False) else [      # boot splash only, not on settings saves
+            "AirBridge".center(20), f"v{self.build['version']}".center(20),
+            (self.build.get("commit") or "").center(20), c["general"]["site_name"][:20].center(20)]
+        self._splashed = True
+        self.lcd = Lcd(c["lcd"], sim, self.lcd_snapshot, splash=splash)
         self.lcd.start()
-        self.event("info", f"started ({'SIMULATION' if sim else 'hardware'} mode)")
+        self.event("info", f"AirBridge {version.label(self.build)} started ({'SIMULATION' if sim else 'hardware'} mode)")
         for err in self._hw_errors():
             self.event("error", err)
 
@@ -551,6 +558,7 @@ class Engine:
             "type": "status",
             "t": now,
             "site": c["general"]["site_name"],
+            "version": version.label(self.build),
             "simulate": self.sim,
             "rssi_v": None if d.rssi is None else round(d.rssi, 3),
             "rssi_dbm": (lambda x: None if x is None else round(x, 1))(volts_to_dbm(d.rssi, c["rssi"])),

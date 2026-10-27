@@ -177,8 +177,10 @@ def render(snap, now, page):
 class Lcd:
     """Runs its own thread; pulls a snapshot from the engine at refresh_hz."""
 
-    def __init__(self, cfg, simulate, snapshot):
+    def __init__(self, cfg, simulate, snapshot, splash=None):
         self.cfg = cfg
+        self.splash = splash                 # 4 lines shown for a few seconds at start-up
+        self._splash_until = 0.0
         self.sim = simulate
         self.snapshot = snapshot
         self.dev = None
@@ -198,6 +200,8 @@ class Lcd:
         if not self.cfg["enabled"]:
             return
         self._stop.clear()
+        if self.splash:
+            self._splash_until = time.time() + 3
         self._thr = threading.Thread(target=self._run, daemon=True)
         self._thr.start()
 
@@ -234,7 +238,8 @@ class Lcd:
             try:
                 snap = self.snapshot()
                 snap["ip"] = self._ip
-                lines = render(snap, now, page)
+                lines = ([fit(x) for x in self.splash] if self.splash and now < self._splash_until
+                         else render(snap, now, page))
                 busy = snap["state"] != "idle" or snap.get("sip") not in ("idle", "disabled", None) or snap.get("alarms")
                 if busy:
                     self._last_activity = now

@@ -387,6 +387,17 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
         <p class="muted">Changing your password signs out your other sessions.</p>
       </div>
       <div class="card s6">
+        <h3>About</h3>
+        <dl class="kv">
+          <dt>Version</dt><dd id="abVer">–</dd>
+          <dt>Build</dt><dd id="abBuild">–</dd>
+          <dt>Commit date</dt><dd id="abDate">–</dd>
+          <dt>Installed</dt><dd id="abInst">–</dd>
+        </dl>
+        <h3 style="margin-top:16px">Version history on this unit</h3>
+        <div class="tscroll" style="max-height:220px;overflow:auto"><table class="t" id="verT"></table></div>
+      </div>
+      <div class="card s6">
         <h3>Roles</h3>
         <dl class="kv" style="grid-template-columns:auto 1fr">
           <dt><span class="pill">viewer</span></dt><dd style="text-align:left;font-family:inherit">Status, history, audio analysis, listen to recordings</dd>
@@ -415,6 +426,8 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
     </div>
   </section>
 </main>
+<footer style="max-width:1100px;margin:0 auto;padding:8px 16px 24px;color:var(--dim);font:12px var(--mono)">
+  AirBridge <span id="verLabel"></span></footer>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -428,7 +441,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'recs') loadRecs();
   if (b.dataset.tab === 'setup') loadCfg();
   if (b.dataset.tab === 'history') loadHist();
-  if (b.dataset.tab === 'access') loadAccess();
+  if (b.dataset.tab === 'access') { loadAccess(); loadVersion(); }
   location.hash = b.dataset.tab;
 });
 
@@ -903,6 +916,21 @@ async function applySuggest(){
   c.rssi.threshold_mode = 'adaptive'; c.rssi.on_offset_v = hStats.suggest_on; c.rssi.off_offset_v = hStats.suggest_off;
   const j = await post('/api/config', c); if (j.ok) { CFG_R = j.config.rssi; toast('Adaptive offsets applied'); renderStats(); }
 }
+
+// ---------- version ----------
+async function loadVersion(){
+  const r = await fetch('/api/version'); if (!r.ok) return; const v = await r.json();
+  $('verLabel').textContent = v.label;
+  if (!$('abVer')) return;
+  $('abVer').textContent = 'v' + v.version;
+  $('abBuild').textContent = (v.describe || v.commit || 'unknown') + (v.dirty ? ' (modified)' : '');
+  $('abDate').textContent = v.commit_date ? fmtDT(Date.parse(v.commit_date)/1000) : '–';
+  $('abInst').textContent = v.installed_at ? fmtDT(Date.parse(v.installed_at)/1000) : (v.source === 'git' ? 'running from git checkout' : '–');
+  $('verT').innerHTML = '<tr><th>Version</th><th>Build</th><th>First started</th></tr>' + v.history.map((h, i) => `
+    <tr><td><b>v${esc(h.version)}</b>${i === 0 ? ' <span class="pill g">current</span>' : ''}</td>
+      <td class="m">${esc(h.describe || h.commit || '–')}</td><td class="m">${fmtDT(h.started)}</td></tr>`).join('');
+}
+loadVersion();
 
 // ---------- access ----------
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

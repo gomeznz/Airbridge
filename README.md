@@ -48,6 +48,19 @@ The K5TRA's PL-detect input is not used: CTCSS isn't used in aviation.
 
 **RSSI input protection.** The ADS1115 inputs must stay within its supply rail (3.3 V). If the A210's RSSI can exceed that, use a divider and set *Divider ratio* in Setup to match (2.0 for 10k/10k). Fit a 1k series resistor plus a 3.3 V TVS or clamp diodes. If the RSSI source is high-impedance, buffer it with an op-amp follower. Check the voltage range and the pin location in the A210 manual.
 
+## Versions
+
+AirBridge uses semantic versioning. The version number lives in `airbridge/__init__.py`, every release is tagged in git (`v0.7.0`, …), and [CHANGELOG.md](CHANGELOG.md) lists what changed. The running version and build are shown:
+- in the web page footer and in **Access → About**;
+- on the LCD for three seconds at boot;
+- at `/api/version`.
+
+Each unit keeps its own upgrade history, which appears in Access → About and in the audit log.
+
+To install a specific release, run `git checkout v0.6.0 && sudo ./install.sh`. To go back to the latest, run `git checkout main && git pull && sudo ./install.sh`.
+
+**Making a release:** bump `__version__`, add a CHANGELOG entry (a test checks that it's there), commit, then `git tag -a vX.Y.Z -m "..." && git push --follow-tags`.
+
 ## Install (on the Pi)
 
 ```bash

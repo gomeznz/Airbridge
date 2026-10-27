@@ -28,6 +28,22 @@ mkdir -p $APP $DATA
 rsync -a --delete --exclude .git --exclude venv "$(dirname "$0")/" $APP/
 chown -R $SVC_USER:$SVC_USER $DATA
 
+echo "==> version"
+VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$SRC/airbridge/__init__.py")
+if git -C "$SRC" rev-parse HEAD >/dev/null 2>&1; then
+  COMMIT=$(git -C "$SRC" rev-parse --short HEAD)
+  DESCRIBE=$(git -C "$SRC" describe --tags --always --dirty 2>/dev/null || echo "$COMMIT")
+  CDATE=$(git -C "$SRC" show -s --format=%cI HEAD)
+  DIRTY=$([[ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]] && echo true || echo false)
+else
+  COMMIT=""; DESCRIBE=""; CDATE=""; DIRTY=false
+fi
+cat > $APP/version.json <<JSON
+{"version": "$VER", "commit": "$COMMIT", "describe": "$DESCRIBE", "commit_date": "$CDATE",
+ "dirty": $DIRTY, "installed_at": "$(date -Iseconds)"}
+JSON
+echo "   AirBridge v$VER ${DESCRIBE:+($DESCRIBE)}"
+
 echo "==> python environment"
 # system site packages so the apt-installed lgpio (Pi 5 GPIO) is visible
 python3 -m venv --system-site-packages $APP/venv
@@ -41,7 +57,7 @@ systemctl enable --now airbridge
 
 IP=$(hostname -I | awk '{print $1}')
 echo
-echo "AirBridge is running: http://$IP:8080"
+echo "AirBridge v$VER is running: http://$IP:8080"
 sleep 3
 if [[ -f $DATA/setup-code.txt ]]; then
   echo
