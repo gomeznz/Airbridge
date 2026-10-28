@@ -100,6 +100,8 @@ The web panel requires a sign-in. Each user has one role:
 
 **Network limits.** Setup → Web → *Allowed networks* takes a list such as `192.168.1.0/24`. It restricts which addresses can reach the panel at all, and users still have to sign in. If the panel is published through Cloudflare Tunnel or a reverse proxy, tick *Behind a proxy / tunnel* so the real client IP is used for the allowlist, lockout and audit log.
 
+**Login screen branding.** Setup → *Login screen branding* lets you upload your own logo and wallpaper, for example a company logo. Use a transparent PNG or SVG for the logo (it's shown up to 96 px high) and a 1920×1080 or larger image for the wallpaper. *Use default* restores the built-in images. Uploads are stored in `/var/lib/airbridge/branding/`, so they survive upgrades.
+
 **Locked out of the admin account?** From the Pi:
 
 ```bash

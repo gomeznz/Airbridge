@@ -3,6 +3,17 @@
 All notable changes to AirBridge. Versions follow [semantic versioning](https://semver.org/);
 each release is tagged in git (`v0.7.0` etc.). The version number lives in `airbridge/__init__.py`.
 
+## [0.9.0] - 2026-10-29
+### Added
+- Login and setup pages now have a logo and a wallpaper. The defaults are an original AirBridge logo and an
+  airfield-at-night wallpaper, both built in with no internet needed.
+- Setup → Login screen branding lets you upload your own logo and wallpaper (PNG, JPEG, WebP or SVG) or restore
+  the defaults. This is admin only and audited. Uploaded SVGs are served sandboxed.
+- The site name is shown under the sign-in box.
+### Fixed
+- install.sh: `SRC: unbound variable`; git could not read the clone when run as root; upgrades now restart the
+  service and the installer checks that AirBridge started.
+
 ## [0.8.0] - 2026-10-28
 ### Added
 - Path delay is measured on every over (airband → NXR) and every NXR burst (NXR → airband). It is shown on the
@@ -63,6 +74,7 @@ each release is tagged in git (`v0.7.0` etc.). The version number lives in `airb
 - First release: RSSI carrier detection (ADS1115), relay output, recording with pre-roll, direct
   SIP to the NXR-1800 (no PBX), and a web status, recordings and setup page.
 
+[0.9.0]: https://github.com/gomeznz/Airbridge/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/gomeznz/Airbridge/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/gomeznz/Airbridge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gomeznz/Airbridge/compare/v0.5.0...v0.6.0

@@ -352,6 +352,27 @@ table.t td.m{font-family:var(--mono);font-size:12.5px}
 
   <!-- SETUP -->
   <section id="setup">
+    <div class="card" style="margin-bottom:14px">
+      <h3>Login screen branding</h3>
+      <p class="muted" style="margin-top:0">Your own logo and wallpaper for the sign-in and setup pages. PNG, JPEG, WebP or SVG.
+        A transparent PNG or SVG works best for the logo (shown up to 96 px high); use 1920×1080 or larger for the wallpaper.</p>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="width:180px;height:72px;border:1px solid var(--line);border-radius:10px;background:#0d1117;display:grid;place-items:center;overflow:hidden">
+            <img id="brLogo" src="/branding/logo" style="max-width:92%;max-height:60px;object-fit:contain" alt=""></div>
+          <div><b>Logo</b> <span class="muted" id="brLogoSt"></span>
+            <div class="row" style="margin-top:6px"><label class="btn sm">Upload…<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden onchange="brUp('logo',this)"></label>
+              <button class="btn sm" type="button" onclick="brReset('logo')">Use default</button></div></div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center">
+          <div style="width:180px;height:72px;border:1px solid var(--line);border-radius:10px;background:#0d1117 center/cover no-repeat" id="brWall"></div>
+          <div><b>Wallpaper</b> <span class="muted" id="brWallSt"></span>
+            <div class="row" style="margin-top:6px"><label class="btn sm">Upload…<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden onchange="brUp('wallpaper',this)"></label>
+              <button class="btn sm" type="button" onclick="brReset('wallpaper')">Use default</button>
+              <a class="btn sm" href="/login" target="_blank" rel="noopener" style="text-decoration:none">Preview</a></div></div>
+        </div>
+      </div>
+    </div>
     <form id="cfgForm" autocomplete="off"></form>
     <div class="savebar"><button class="btn pri" id="saveBtn">Save &amp; apply</button><span class="muted" id="saveNote"></span></div>
   </section>
@@ -464,7 +485,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab === 'recs') loadRecs();
-  if (b.dataset.tab === 'setup') loadCfg();
+  if (b.dataset.tab === 'setup') { loadCfg(); loadBrand(); }
   if (b.dataset.tab === 'history') loadHist();
   if (b.dataset.tab === 'access') { loadAccess(); loadVersion(); }
   location.hash = b.dataset.tab;
@@ -1023,6 +1044,24 @@ async function resetPw(id, name){
 async function toggleUser(id, disable){ if (await api('PATCH', '/api/users/' + id, {disabled: disable})) loadAccess(); }
 async function delUser(id, name){ if (!confirm(`Delete user ${name}?`)) return; if (await api('DELETE', '/api/users/' + id)) loadAccess(); }
 async function revoke(id){ if (await api('DELETE', '/api/sessions/' + id)) loadAccess(); }
+
+// ---------- branding ----------
+async function loadBrand(){
+  const r = await fetch('/api/branding'); if (!r.ok) return; const b = await r.json(), t = Date.now();
+  $('brLogo').src = '/branding/logo?' + t;
+  $('brWall').style.backgroundImage = `url(/branding/wallpaper?${t})`;
+  $('brLogoSt').textContent = b.logo.custom ? '(custom)' : '(default)';
+  $('brWallSt').textContent = b.wallpaper.custom ? '(custom)' : '(default)';
+}
+async function brUp(kind, input){
+  const f = input.files[0]; input.value = ''; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/branding/' + kind, {method:'POST', body: fd});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return toast(j.detail || 'Upload failed');
+  toast((kind === 'logo' ? 'Logo' : 'Wallpaper') + ' updated'); loadBrand();
+}
+async function brReset(kind){ if (await api('DELETE', '/api/branding/' + kind)) { toast('Default restored'); loadBrand(); } }
 
 // ---------- test helpers ----------
 let capF = null, capS = null, capFa = null, capSa = null;

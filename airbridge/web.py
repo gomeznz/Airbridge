@@ -27,7 +27,7 @@ auth = Auth(DATA_DIR, config["web"])
 app = FastAPI(title="AirBridge", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
 COOKIE = "ab_session"
-PUBLIC = {"/login", "/setup", "/favicon.svg"}
+PUBLIC = {"/login", "/setup", "/favicon.svg", "/branding/logo", "/branding/wallpaper"}
 
 
 # ---------- helpers ----------
@@ -90,21 +90,105 @@ async def access_mw(request: Request, call_next):
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "same-origin"
-    resp.headers["Content-Security-Policy"] = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+    resp.headers.setdefault("Content-Security-Policy", ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
                                                "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-                                               "media-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'")
+                                               "media-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'"))
     if path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
+# ---------- branding (login screen logo + wallpaper) ----------
+BRAND_DIR = os.path.join(DATA_DIR, "branding")
+BRAND = {   # kind -> (default file, max upload bytes)
+    "logo": ("logo.svg", 1 * 1024 * 1024),
+    "wallpaper": ("login-wallpaper.svg", 8 * 1024 * 1024),
+}
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml"}
+
+
+def _sniff(data):
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    head = data[:1024].lstrip().lower()
+    if head.startswith(b"<svg") or (head.startswith(b"<?xml") and b"<svg" in data[:4096].lower()):
+        return ".svg"
+    return None
+
+
+def _brand_file(kind):
+    for ext in IMAGE_TYPES:
+        p = os.path.join(BRAND_DIR, kind + ext)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+@app.get("/branding/{kind}")
+async def branding(kind: str):
+    if kind not in BRAND:
+        raise HTTPException(404)
+    p = _brand_file(kind) or os.path.join(HERE, "static", BRAND[kind][0])
+    r = FileResponse(p, media_type=IMAGE_TYPES[os.path.splitext(p)[1]])
+    # an uploaded SVG is only ever an image: no scripts, no navigation tricks
+    r.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+@app.get("/api/branding")
+async def branding_info(user=role("admin")):
+    return {k: {"custom": bool(_brand_file(k)), "max_mb": v[1] // (1024 * 1024)} for k, v in BRAND.items()}
+
+
+@app.post("/api/branding/{kind}")
+async def branding_upload(kind: str, request: Request, user=role("admin")):
+    if kind not in BRAND:
+        raise HTTPException(404)
+    form = await request.form()
+    f = form.get("file")
+    if not f or not hasattr(f, "read"):
+        raise HTTPException(400, "no file")
+    data = await f.read(BRAND[kind][1] + 1)
+    if len(data) > BRAND[kind][1]:
+        raise HTTPException(413, f"too large (max {BRAND[kind][1] // (1024 * 1024)} MB)")
+    ext = _sniff(data)
+    if not ext:
+        raise HTTPException(400, "not a PNG, JPEG, WebP or SVG image")
+    os.makedirs(BRAND_DIR, exist_ok=True)
+    old = _brand_file(kind)
+    if old:
+        os.remove(old)
+    with open(os.path.join(BRAND_DIR, kind + ext), "wb") as out:
+        out.write(data)
+    audit(request, "branding_upload", f"{kind} ({ext[1:]}, {len(data) // 1024} KB)")
+    return {"ok": True}
+
+
+@app.delete("/api/branding/{kind}")
+async def branding_reset(kind: str, request: Request, user=role("admin")):
+    if kind not in BRAND:
+        raise HTTPException(404)
+    old = _brand_file(kind)
+    if old:
+        os.remove(old)
+        audit(request, "branding_reset", kind)
+    return {"ok": True}
+
+
 # ---------- login / setup / logout ----------
 def _page(title, body, err=None):
     e = f"<p class=err>{html.escape(err)}</p>" if err else ""
-    return AUTH_HTML.replace("{title}", title).replace("{body}", body).replace("{err}", e)
+    site = html.escape(config["general"].get("site_name") or "")
+    return (AUTH_HTML.replace("{title}", title).replace("{site}", site)
+            .replace("{body}", body).replace("{err}", e))
 
 
-LOGIN_FORM = """<form method=post action=/login><h1>AirBridge</h1>
+LOGIN_FORM = """<form method=post action=/login><h1>Sign in</h1>
 <input name=username placeholder=Username autocomplete=username autofocus required>
 <input type=password name=password placeholder=Password autocomplete=current-password required>
 {err}<button>Sign in</button></form>"""
@@ -492,11 +576,24 @@ async def sim(mode: str, user=role("operator")):
 
 AUTH_HTML = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>AirBridge · {title}</title><link rel=icon href=/favicon.svg>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d1117;color:#e6edf3;
-font:15px system-ui,sans-serif}form{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;
-width:min(340px,86vw)}h1{font-size:18px;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:10px;
-border-radius:8px;border:1px solid #30363d;background:#0d1117;color:inherit;font:inherit;margin-bottom:10px}
-button{margin-top:4px;width:100%;padding:10px;border:0;border-radius:8px;background:#e3a008;color:#111;
-font-weight:600;font:inherit;cursor:pointer}.err{color:#f85149;margin:0 0 10px}.muted{color:#8b949e;font-size:13px}
-code{font-size:12px;color:#e6edf3}</style>
-{body}"""
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;color:#e6edf3;font:15px system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:#05080f url(/branding/wallpaper) center/cover no-repeat fixed}
+body::before{content:"";position:fixed;inset:0;background:linear-gradient(180deg,rgba(5,8,15,.25),rgba(5,8,15,.55));pointer-events:none}
+.wrap{position:relative;width:min(380px,90vw);display:flex;flex-direction:column;align-items:center;gap:22px;padding:24px 0}
+.logo{max-width:100%;max-height:96px;object-fit:contain;filter:drop-shadow(0 4px 18px rgba(0,0,0,.6))}
+form{width:100%;background:rgba(13,17,23,.72);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
+  border:1px solid rgba(240,246,252,.12);border-radius:14px;padding:26px;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+h1{font-size:17px;margin:0 0 16px;font-weight:600}
+input{width:100%;padding:11px 12px;border-radius:9px;border:1px solid #30363d;background:rgba(1,4,9,.75);color:inherit;font:inherit;margin-bottom:10px}
+input:focus{outline:none;border-color:#e3a008;box-shadow:0 0 0 3px rgba(227,160,8,.2)}
+button{margin-top:6px;width:100%;padding:11px;border:0;border-radius:9px;background:#e3a008;color:#111;font:inherit;font-weight:600;cursor:pointer}
+button:hover{background:#f0b324}
+.err{color:#ff7b72;margin:0 0 10px}.muted{color:#9aa4b0;font-size:13px;line-height:1.5}
+code{font-size:12px;color:#e6edf3}
+.foot{color:rgba(230,237,243,.55);font:12px ui-monospace,Menlo,Consolas,monospace;text-shadow:0 1px 3px #000}
+</style>
+<div class=wrap><img class=logo src=/branding/logo alt="AirBridge">
+{body}
+<div class=foot>{site}</div></div>"""

@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05080f"/>
+      <stop offset="0.55" stop-color="#0b1424"/>
+      <stop offset="0.72" stop-color="#14233a"/>
+      <stop offset="1" stop-color="#070b12"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.66" r="0.6">
+      <stop offset="0" stop-color="#e3a008" stop-opacity="0.22"/>
+      <stop offset="0.35" stop-color="#e3a008" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#e3a008" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a111c"/>
+      <stop offset="1" stop-color="#03050a"/>
+    </linearGradient>
+    <radialGradient id="lamp" r="0.5">
+      <stop offset="0" stop-color="#ffd98a"/>
+      <stop offset="0.4" stop-color="#e3a008" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#e3a008" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lampb" r="0.5">
+      <stop offset="0" stop-color="#cfe6ff"/>
+      <stop offset="0.4" stop-color="#58a6ff" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#58a6ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lampg" r="0.5">
+      <stop offset="0" stop-color="#d6ffd9"/>
+      <stop offset="0.4" stop-color="#3fb950" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#3fb950" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#cfd8e6">
+    <circle cx="112" cy="84" r="1.2" opacity=".7"/><circle cx="240" cy="190" r=".9" opacity=".5"/>
+    <circle cx="386" cy="62" r="1.4" opacity=".8"/><circle cx="520" cy="240" r=".8" opacity=".4"/>
+    <circle cx="655" cy="120" r="1.1" opacity=".6"/><circle cx="790" cy="44" r=".9" opacity=".5"/>
+    <circle cx="930" cy="170" r="1.3" opacity=".7"/><circle cx="1060" cy="90" r=".8" opacity=".45"/>
+    <circle cx="1188" cy="230" r="1" opacity=".5"/><circle cx="1320" cy="58" r="1.5" opacity=".85"/>
+    <circle cx="1455" cy="160" r=".9" opacity=".5"/><circle cx="1590" cy="96" r="1.2" opacity=".65"/>
+    <circle cx="1720" cy="210" r=".8" opacity=".4"/><circle cx="1840" cy="70" r="1.1" opacity=".6"/>
+    <circle cx="60" cy="300" r=".8" opacity=".35"/><circle cx="300" cy="360" r="1" opacity=".4"/>
+    <circle cx="1500" cy="330" r="1" opacity=".4"/><circle cx="1870" cy="340" r=".8" opacity=".35"/>
+    <circle cx="1010" cy="300" r=".7" opacity=".3"/><circle cx="700" cy="330" r=".9" opacity=".35"/>
+  </g>
+
+  <!-- radio waves from the tower -->
+  <g fill="none" stroke="#e3a008" stroke-linecap="round">
+    <path d="M1540 560 a90 90 0 0 1 180 0" stroke-width="3" opacity=".32"/>
+    <path d="M1490 560 a140 140 0 0 1 280 0" stroke-width="3" opacity=".22"/>
+    <path d="M1440 560 a190 190 0 0 1 380 0" stroke-width="3" opacity=".14"/>
+    <path d="M1390 560 a240 240 0 0 1 480 0" stroke-width="3" opacity=".08"/>
+  </g>
+  <!-- tower -->
+  <g stroke="#2a3a52" stroke-width="3" fill="none">
+    <path d="M1630 720 L1612 600 L1648 600 Z"/>
+    <path d="M1630 600 L1630 566"/>
+    <path d="M1617 640 L1643 640 M1620 680 L1640 680"/>
+  </g>
+  <circle cx="1630" cy="564" r="14" fill="url(#lamp)"/>
+  <circle cx="1630" cy="564" r="3" fill="#ff5a4e"/>
+
+  <!-- horizon glow + ground -->
+  <rect width="1920" height="1080" fill="url(#glow)"/>
+  <path d="M0 720 L1920 720 L1920 1080 L0 1080 Z" fill="url(#ground)"/>
+  <path d="M0 720 L1920 720" stroke="#1d2b40" stroke-width="2"/>
+
+  <!-- runway in perspective -->
+  <path d="M930 720 L990 720 L1420 1080 L500 1080 Z" fill="#0c1420" opacity=".95"/>
+  <g stroke="#c9d3e0" stroke-linecap="butt" opacity=".55">
+    <path d="M960 728 L960 742" stroke-width="2"/>
+    <path d="M960 760 L960 784" stroke-width="3"/>
+    <path d="M960 812 L960 850" stroke-width="4"/>
+    <path d="M960 890 L960 950" stroke-width="6"/>
+    <path d="M960 1000 L960 1080" stroke-width="8"/>
+  </g>
+
+  <!-- runway edge lights (amber) converging to the horizon -->
+  <g>
+    <circle cx="932" cy="724" r="4" fill="url(#lamp)"/><circle cx="988" cy="724" r="4" fill="url(#lamp)"/>
+    <circle cx="918" cy="738" r="6" fill="url(#lamp)"/><circle cx="1002" cy="738" r="6" fill="url(#lamp)"/>
+    <circle cx="896" cy="760" r="8" fill="url(#lamp)"/><circle cx="1024" cy="760" r="8" fill="url(#lamp)"/>
+    <circle cx="864" cy="792" r="11" fill="url(#lamp)"/><circle cx="1056" cy="792" r="11" fill="url(#lamp)"/>
+    <circle cx="818" cy="838" r="15" fill="url(#lamp)"/><circle cx="1102" cy="838" r="15" fill="url(#lamp)"/>
+    <circle cx="752" cy="904" r="21" fill="url(#lamp)"/><circle cx="1168" cy="904" r="21" fill="url(#lamp)"/>
+    <circle cx="656" cy="1000" r="30" fill="url(#lamp)"/><circle cx="1264" cy="1000" r="30" fill="url(#lamp)"/>
+  </g>
+  <!-- threshold (green) and taxiway (blue) lights -->
+  <g>
+    <circle cx="940" cy="721" r="3" fill="url(#lampg)"/><circle cx="952" cy="721" r="3" fill="url(#lampg)"/>
+    <circle cx="968" cy="721" r="3" fill="url(#lampg)"/><circle cx="980" cy="721" r="3" fill="url(#lampg)"/>
+    <circle cx="700" cy="760" r="6" fill="url(#lampb)"/><circle cx="600" cy="772" r="7" fill="url(#lampb)"/>
+    <circle cx="480" cy="788" r="8" fill="url(#lampb)"/><circle cx="340" cy="808" r="10" fill="url(#lampb)"/>
+    <circle cx="180" cy="832" r="12" fill="url(#lampb)"/>
+    <circle cx="1240" cy="760" r="6" fill="url(#lampb)"/><circle cx="1340" cy="772" r="7" fill="url(#lampb)"/>
+    <circle cx="1460" cy="788" r="8" fill="url(#lampb)"/>
+  </g>
+
+  <!-- distant hills -->
+  <path d="M0 720 C160 690 260 700 380 684 C520 666 600 700 720 704 C800 707 860 716 930 720 L0 720 Z" fill="#0a1220"/>
+  <path d="M990 720 C1100 712 1180 690 1300 694 C1420 698 1500 672 1640 680 C1760 686 1840 700 1920 694 L1920 720 Z" fill="#0a1220"/>
+</svg>

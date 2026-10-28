@@ -135,3 +135,23 @@ def test_passwords_are_hashed():
     rows = sqlite3.connect(os.path.join(DATA, "auth.db")).execute("SELECT pw_hash FROM users").fetchall()
     assert rows and all(re.match(r"^scrypt\$", r[0]) for r in rows)
     assert all("correct horse" not in r[0] for r in rows)
+
+
+def test_branding_upload_reset_and_svg_sandbox(client):
+    import io
+    # login page and the default images are public
+    client.cookies.clear()
+    assert client.get("/branding/logo").headers["content-type"].startswith("image/svg")
+    assert "sandbox" in client.get("/branding/wallpaper").headers["content-security-policy"]
+    login(client, "olly", "olly-password-1")                               # operator can't change it
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    assert client.post("/api/branding/logo", files={"file": ("l.png", png)}, headers=H).status_code == 403
+    login(client, "alex", "correct horse 1")
+    assert client.post("/api/branding/logo", files={"file": ("x.txt", b"hello")}, headers=H).status_code == 400
+    assert client.post("/api/branding/logo", files={"file": ("l.png", png)}, headers=H).status_code == 200
+    r = client.get("/branding/logo")
+    assert r.headers["content-type"] == "image/png" and r.content == png
+    assert client.get("/api/branding").json()["logo"]["custom"] is True
+    assert client.delete("/api/branding/logo", headers=H).status_code == 200
+    assert client.get("/branding/logo").headers["content-type"].startswith("image/svg")
+    assert client.get("/api/branding").json()["logo"]["custom"] is False
